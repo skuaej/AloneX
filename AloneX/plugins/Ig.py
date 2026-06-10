@@ -12,30 +12,6 @@ INSTAGRAM_REGEX = r".*(instagram.com|instagr.am)/(p|reel|tv|share)/[^\s]+"
 current_status_msg = None
 last_edit_time = 0
 
-# --- LIVE REAL INSTAGRAM COOKIES DATA ---
-COOKIES_DATA = """# Netscape HTTP Cookie File
-# https://curl.haxx.se/rfc/cookie_spec.html
-# This is a generated file! Do not edit.
-
-.instagram.com	TRUE	/	TRUE	1815543658	csrftoken	UHOEPGsEWWZCyWaTiQREctWt6VCVpEi2
-.instagram.com	TRUE	/	TRUE	1815543467	datr	q6YnagrdppRbnk_z74CLmql7
-.instagram.com	TRUE	/	TRUE	1812519467	ig_did	83632560-C690-4FB6-8BF3-BD321873D9AF
-.instagram.com	TRUE	/	TRUE	1781588459	wd	360x634
-.instagram.com	TRUE	/	TRUE	1781588346	dpr	3
-.instagram.com	TRUE	/	TRUE	1815543468	mid	aiemqwABAAF5b3O6W9brtE9zHHO0
-.instagram.com	TRUE	/	TRUE	1788759658	ds_user_id	25349046417
-.instagram.com	TRUE	/	TRUE	1812519546	sessionid	25349046417%3AelmMsdUhcSc1He%3A4%3AAYjZFTNLvevhBdQs48r-Bh5FxmIXO0yRu4uibe5kaw
-.instagram.com	TRUE	/	TRUE	1815543547	ps_l	1
-.instagram.com	TRUE	/	TRUE	1815543547	ps_n	1
-.instagram.com	TRUE	/	TRUE	0	rur	"SNB\\05425349046417\\0541812519658:01fffc9637faa298604a83c726eeea0db1be399feb6739f78b44fa57fa6ae6e555759255"
-"""
-CLEANED_COOKIES = COOKIES_DATA.strip()
-
-# Create a temporary file for yt-dlp to read the cookies from
-IG_COOKIE_FILE = "ig_cookies.txt"
-with open(IG_COOKIE_FILE, "w") as f:
-    f.write(CLEANED_COOKIES)
-
 # --- UTILITIES ---
 def create_progress_bar(percentage):
     total_blocks = 10
@@ -105,9 +81,6 @@ def fetch_instagram_data_and_comments(url):
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
         }
     }
-    
-    if "sessionid" in CLEANED_COOKIES.lower():  
-        ydl_opts['cookiefile'] = IG_COOKIE_FILE
 
     try:
         with YoutubeDL(ydl_opts) as ydl:
@@ -141,6 +114,7 @@ def fetch_instagram_data_and_comments(url):
     except Exception:
         pass
         
+    # Fallback API if yt-dlp fails
     try:
         api_url = f"https://api.vkrsu.my.id/social/download?url={clean_url}"
         res = requests.get(api_url, timeout=10).json()
@@ -172,8 +146,6 @@ def download_and_mux_streams(url, data, vid_id):
         'merge_output_format': 'mp4',
         'progress_hooks': [yt_dlp_callback],
     }
-    if "sessionid" in CLEANED_COOKIES.lower():  
-        ydl_opts['cookiefile'] = IG_COOKIE_FILE
         
     with YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
