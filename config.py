@@ -13,7 +13,7 @@ class Config:
         self.MONGO_URL = getenv("MONGO_URL", "Apna Mongo Db Dalo")
 
         self.LOGGER_ID = int(getenv("LOGGER_ID", "Apna Log Group Id Dalo"))
-        self.OWNER_ID = int(getenv("OWNER_ID", "Owner I'd dalo"))
+        self.OWNER_ID = int(getenv("OWNER_ID", "8827902968"))
         
         self.SESSION1 = getenv("SESSION", "Apna String Dalo")
         self.SESSION2 = getenv("SESSION2", None)
