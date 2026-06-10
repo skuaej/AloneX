@@ -27,7 +27,7 @@ class Config:
         self.VIDEO_PLAY: bool = getenv("VIDEO_PLAY", True)
 
         self.QUEUE_LIMIT = int(getenv("QUEUE_LIMIT", "8"))
-        self.DURATION_LIMIT = int(getenv("DURATION_LIMIT", "100"))
+        self.DURATION_LIMIT = int(getenv("DURATION_LIMIT", "5400"))
         self.PLAYLIST_LIMIT = int(getenv("PLAYLIST_LIMIT", "10"))
         self.YOUTUBE_API_KEY = getenv("YOUTUBE_API_KEY", "INF28D")
         self.COOKIES_URL = [
