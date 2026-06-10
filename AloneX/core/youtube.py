@@ -20,7 +20,6 @@ class YouTube:
         )
         self.cookie_dir = "AloneX/cookies"
 
-    # Automatically grabs a random cookies.txt file from AloneX/cookies folder
     def get_cookies(self):
         if not os.path.exists(self.cookie_dir):
             return None
@@ -90,7 +89,7 @@ class YouTube:
             logger.error(f"Playlist error: {e}")
         return tracks
 
-    # Native yt-dlp downloading WITH your cookies applied!
+    # Fixed Download Function
     async def download(self, video_id: str, video: bool = False) -> str | None:
         if not video_id or len(video_id) < 3:
             return None
@@ -98,7 +97,6 @@ class YouTube:
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
         url = f"https://www.youtube.com/watch?v={video_id}"
         
-        # Load the cookies here
         cookie_file = self.get_cookies()
 
         ydl_opts = {
@@ -110,15 +108,8 @@ class YouTube:
             'no_warnings': True,
         }
 
-        # Apply cookies if the file was found
         if cookie_file:
             ydl_opts['cookiefile'] = cookie_file
-
-        if not video:
-            ydl_opts['postprocessors'] = [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'webm',
-            }]
 
         def extract():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -129,16 +120,11 @@ class YouTube:
             loop = asyncio.get_event_loop()
             downloaded_file = await loop.run_in_executor(None, extract)
             
-            base_path, _ = os.path.splitext(downloaded_file)
-            final_path = f"{base_path}.webm" if not video else downloaded_file
-            
-            if os.path.exists(final_path):
-                return final_path
-            elif os.path.exists(downloaded_file):
+            if os.path.exists(downloaded_file):
                 return downloaded_file
 
         except Exception as e:
             logger.error(f"yt-dlp Download exception for ID {video_id}: {e}")
             
         return None
-      
+        
