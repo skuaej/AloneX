@@ -5,11 +5,11 @@ from pyrogram.types import Message
 from AloneX import app
 from config import Config
 
-# Initialize your config to safely grab the OWNER_ID (8827902968)
+# Initialize config to get the Owner ID
 cfg = Config()
 OWNER_ID = cfg.OWNER_ID
 
-# --- 1. LIST DIRECTORY (/ls) ---
+# --- 1. LIST DIRECTORY (/ls) - OWNER ONLY ---
 @app.on_message(filters.command(["ls", "dir"]) & filters.user(OWNER_ID))
 async def list_directory(client, message: Message):
     path = message.text.split(maxsplit=1)[1] if len(message.command) > 1 else "."
@@ -33,7 +33,7 @@ async def list_directory(client, message: Message):
     except Exception as e:
         await message.reply_text(f"❌ **Error:** `{str(e)}`")
 
-# --- 2. READ/OPEN FILE (/read) ---
+# --- 2. READ/OPEN FILE (/read) - OWNER ONLY ---
 @app.on_message(filters.command(["read", "cat", "open"]) & filters.user(OWNER_ID))
 async def read_file(client, message: Message):
     if len(message.command) < 2:
@@ -58,7 +58,7 @@ async def read_file(client, message: Message):
     except Exception as e:
         await message.reply_text(f"❌ **Error:** `{str(e)}`")
 
-# --- 3. DELETE FILE OR FOLDER (/rm) ---
+# --- 3. DELETE FILE OR FOLDER (/rm) - OWNER ONLY ---
 @app.on_message(filters.command(["rm", "delete"]) & filters.user(OWNER_ID))
 async def delete_file(client, message: Message):
     if len(message.command) < 2:
@@ -78,7 +78,7 @@ async def delete_file(client, message: Message):
     except Exception as e:
         await message.reply_text(f"❌ **Error:** `{str(e)}`")
 
-# --- 4. UPDATE/CREATE FILE (/update) ---
+# --- 4. UPDATE/CREATE FILE (/update) - OWNER ONLY ---
 @app.on_message(filters.command(["update", "save"]) & filters.user(OWNER_ID))
 async def update_file(client, message: Message):
     if len(message.command) < 2 or not message.reply_to_message:
@@ -98,13 +98,28 @@ async def update_file(client, message: Message):
     except Exception as e:
         await message.reply_text(f"❌ **Error:** `{str(e)}`")
 
-# --- 5. CLEAR FOLDER CONTENTS (/clear) ---
-@app.on_message(filters.command(["clear", "empty"]) & filters.user(OWNER_ID))
+# --- 5. CLEAR FOLDER CONTENTS (/clear) - OWNER + SUDO ALLOWED ---
+@app.on_message(filters.command(["clear", "empty"]))
 async def clear_folder(client, message: Message):
+    user_id = message.from_user.id if message.from_user else 0
+    
+    # Check permissions
+    is_owner = (user_id == OWNER_ID)
+    is_sudo = hasattr(app, "sudoers") and user_id in app.sudoers
+    
+    # If they are neither Owner nor Sudo, ignore the command entirely
+    if not (is_owner or is_sudo):
+        return
+
     if len(message.command) < 2:
         return await message.reply_text("❌ Provide a folder path. Example: `/clear downloads`")
         
     path = message.text.split(maxsplit=1)[1]
+
+    # 🔒 STRICT CHECK: If the user is Sudo (but not the Owner), they can ONLY clear "downloads"
+    if not is_owner:
+        if path.strip("/").lower() != "downloads":
+            return await message.reply_text("🔒 **Permission Denied:** Sudo users are ONLY allowed to clear the `downloads` folder.")
 
     if not os.path.exists(path) or not os.path.isdir(path):
         return await message.reply_text("❌ Folder not found.")
@@ -125,10 +140,10 @@ async def clear_folder(client, message: Message):
 
 __MODULE__ = "Sᴇʀᴠᴇʀ"
 __HELP__ = """
-**Server Management (OWNER ONLY):**
-/ls [path] - List folder items.
-/read [path] - Read file code or download it.
-/rm [path] - Delete file/folder.
-/clear [path] - Wipe folder contents cleanly.
-/update [path] - Overwrite path with replied text/file.
+**Server Management:**
+/ls [path] - List folder items (Owner)
+/read [path] - Read file code (Owner)
+/rm [path] - Delete file/folder (Owner)
+/update [path] - Overwrite file (Owner)
+/clear downloads - Clear downloads cache (Sudo & Owner)
 """
