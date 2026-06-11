@@ -224,15 +224,16 @@ class YouTube:
         url = f"https://www.youtube.com/watch?v={video_id}"
         cookie_file = self.get_cookies()
 
-        ydl_opts = {
-            'format': 'bestvideo[height<=720]+bestaudio/best' if video else 'bestaudio/best',
+                ydl_opts = {
+            # Changed height from 720 to 240 for lightning-fast downloads
+            'format': 'bestvideo[height<=240]+bestaudio/best' if video else 'bestaudio/best',
             'outtmpl': os.path.join(DOWNLOAD_DIR, f"{video_id}.%(ext)s"),
             'geo_bypass': True,
             'nocheckcertificate': True,
             'quiet': True,
             'no_warnings': True,
-        }
-
+                }
+        
         if cookie_file:
             ydl_opts['cookiefile'] = cookie_file
 
