@@ -12,6 +12,12 @@ import requests
 from AloneX.utils.z import get_image, get_couple, save_couple
 from AloneX import app
 
+# --- COOLDOWN SETUP ---
+# Dictionary to store user cooldowns: {user_id: last_used_datetime}
+user_cooldowns = {}
+COOLDOWN_TIME = timedelta(minutes=5)
+# ----------------------
+
 
 # get current date in GMT+5:30 timezone
 def get_today_date():
@@ -21,8 +27,6 @@ def get_today_date():
 
 
 # get tomorrow's date in GMT+5:30 timezone
-
-
 def get_todmorrow_date():
     timezone = pytz.timezone("Asia/Kolkata")
     tomorrow = datetime.now(timezone) + timedelta(days=1)
@@ -30,8 +34,6 @@ def get_todmorrow_date():
 
 
 # Download image from URL
-
-
 def download_image(url, path):
     response = requests.get(url)
     if response.status_code == 200:
@@ -50,6 +52,33 @@ async def ctest(_, message):
     cid = message.chat.id
     if message.chat.type == ChatType.PRIVATE:
         return await message.reply_text("Tʜɪs ᴄᴏᴍᴍᴀɴᴅ ᴏɴʟʏ ᴡᴏʀᴋs ɪɴ ɢʀᴏᴜᴘs.")
+
+    # --- COOLDOWN LOGIC ---
+    user_id = message.from_user.id
+    current_time = datetime.now()
+
+    if user_id in user_cooldowns:
+        last_used_time = user_cooldowns[user_id]
+        time_diff = current_time - last_used_time
+
+        if time_diff < COOLDOWN_TIME:
+            remaining_time = COOLDOWN_TIME - time_diff
+            minutes, seconds = divmod(int(remaining_time.total_seconds()), 60)
+            
+            # Formatting the remaining time cleanly
+            if minutes > 0:
+                time_str = f"{minutes} minute(s) and {seconds} second(s)"
+            else:
+                time_str = f"{seconds} second(s)"
+
+            # Tag the user and inform them of the cooldown
+            return await message.reply_text(
+                f"Hey [{message.from_user.first_name}](tg://user?id={user_id}), please try after {time_str}."
+            )
+
+    # Update the user's last used time in the dictionary
+    user_cooldowns[user_id] = current_time
+    # ----------------------
 
     p1_path = "downloads/pfp.png"
     p2_path = "downloads/pfp1.png"
@@ -190,6 +219,4 @@ Nᴇxᴛ ᴄᴏᴜᴘʟᴇs ᴡɪʟʟ ʙᴇ sᴇʟᴇᴄᴛᴇᴅ ᴏɴ {tomorro
             os.remove(cppic_path)
         except Exception as cleanup_error:
             print(f"Error during cleanup: {cleanup_error}")
-
-
-# ❤️ Love From ShrutiBots 
+            
