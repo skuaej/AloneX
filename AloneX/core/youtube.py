@@ -58,8 +58,6 @@ class YouTube:
         return bool(re.match(self.regex, url))
 
     async def search(self, query: str, m_id: int, video: bool = False) -> Track | None:
-        # We rely strictly on YouTube's search to get the exact matching ID.
-        # This prevents the bot from playing the wrong cached songs with similar words.
         try:
             _search = VideosSearch(query, limit=1)
             results = await _search.next()
@@ -114,18 +112,16 @@ class YouTube:
             cache_channel = getattr(config, "VIDEO_CACHE_CHANNEL", None)
         else:
             cache_channel = getattr(config, "AUDIO_CACHE_CHANNEL", None)
+            
+        # FIX: Explicitly name local files as _video or _audio to prevent yt-dlp collision
+        file_prefix = f"{video_id}_video" if video else f"{video_id}_audio"
         
         # -----------------------------------------------------------------
-        # LAYER 1: Check Local Storage Cache first
+        # LAYER 1: Check Local Storage Cache first (Simplified and 100% accurate)
         # -----------------------------------------------------------------
-        cached_files = [f for f in os.listdir(DOWNLOAD_DIR) if f.startswith(f"{video_id}.")]
+        cached_files = [f for f in os.listdir(DOWNLOAD_DIR) if f.startswith(f"{file_prefix}.")]
         if cached_files:
-            for file_name in cached_files:
-                file_path = os.path.join(DOWNLOAD_DIR, file_name)
-                if video and file_path.endswith((".mp4", ".mkv")):
-                    return file_path
-                elif not video and file_path.endswith((".webm", ".m4a", ".mp3")):
-                    return file_path
+            return os.path.join(DOWNLOAD_DIR, cached_files[0])
 
         # -----------------------------------------------------------------
         # LAYER 2: Cloud Channel DB Extraction
@@ -133,7 +129,6 @@ class YouTube:
         if cache_channel:
             msg = None
             
-            # Step A: MongoDB Exact ID Match (Targets correct storage parameters)
             if self.cache_col is not None:
                 try:
                     cache_data = await self.cache_col.find_one({"video_id": video_id, "video": video})
@@ -146,7 +141,6 @@ class YouTube:
                 except Exception as db_err:
                     logger.error(f"MongoDB collection query error: {db_err}")
             
-            # Step B: Read-Only Userbot Search Fallback (Scoped precisely to target channel)
             if not msg:
                 from AloneX import userbot
                 available_clients = []
@@ -177,7 +171,6 @@ class YouTube:
                         logger.error(f"{client_name} search query error: {ub_err}")
                         continue
 
-            # Step C: Downstream Media Extraction
             if msg and (msg.video or msg.audio or msg.document or msg.voice):
                 try:
                     media = msg.video or msg.audio or msg.document or msg.voice
@@ -185,7 +178,8 @@ class YouTube:
                     if hasattr(media, "file_name") and media.file_name and "." in media.file_name:
                         ext = media.file_name.split(".")[-1]
                         
-                    local_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.{ext}")
+                    # FIX: Apply the prefix to files downloaded from Telegram
+                    local_path = os.path.join(DOWNLOAD_DIR, f"{file_prefix}.{ext}")
                     await app.download_media(message=msg, file_name=local_path, block=True)
                     
                     if os.path.exists(local_path):
@@ -205,10 +199,10 @@ class YouTube:
         url = f"https://www.youtube.com/watch?v={video_id}"
         cookie_file = self.get_cookies()
 
-        # Enforces 240p resolution for videos to fix lag, optimize speed, and save server bandwidth
         ydl_opts = {
             'format': 'bestvideo[height<=240]+bestaudio/best' if video else 'bestaudio/best',
-            'outtmpl': os.path.join(DOWNLOAD_DIR, f"{video_id}.%(ext)s"),
+            # FIX: Force yt-dlp to append the video/audio tag to the filename
+            'outtmpl': os.path.join(DOWNLOAD_DIR, f"{file_prefix}.%(ext)s"),
             'geo_bypass': True,
             'nocheckcertificate': True,
             'quiet': True,
@@ -226,7 +220,6 @@ class YouTube:
         try:
             loop = asyncio.get_event_loop()
             
-            # Standard thread executor extraction
             downloaded_file, extracted_title = await loop.run_in_executor(None, extract)
             final_title = extracted_title if title == "Unknown Track" else title
             
@@ -236,7 +229,6 @@ class YouTube:
                         format_str = "Video" if video else "Audio"
                         cloud_caption = f"Saves: {format_str}\n{video_id}\n\nTitle: {final_title}"
                         
-                        # Uploads items directly to their separated channel destinations
                         if video:
                             saved_msg = await app.send_video(chat_id=cache_channel, video=downloaded_file, caption=cloud_caption)
                         else:
