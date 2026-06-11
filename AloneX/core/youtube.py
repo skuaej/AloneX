@@ -61,17 +61,16 @@ class YouTube:
         return bool(re.match(self.regex, url))
 
     async def search(self, query: str, m_id: int, video: bool = False) -> Track | None:
-        # LAYER 0: Local MongoDB Database text match lookup
         if self.cache_col is not None:
             try:
-                db_match = await self.cache_col.find_one({"$text": {"$search": query}})
+                db_match = await self.cache_col.find_one({"$text": {"$search": query}, "video": video})
                 if db_match:
                     logger.info(f"Database text-index cache hit for query: '{query}'")
                     return Track(
                         id=db_match.get("video_id"),
                         channel_name="Database Cache",
-                        duration="03:00", # Fixed duration string to prevent 0-minute live stream bug
-                        duration_sec=180, # Fixed duration integer so the queue processor moves smoothly
+                        duration="03:00", 
+                        duration_sec=180, 
                         message_id=m_id,
                         title=db_match.get("title", "Cached Audio")[:25],
                         thumbnail=getattr(config, "DEFAULT_THUMB", "https://telegra.ph/file/default.jpg"),
@@ -130,7 +129,12 @@ class YouTube:
             return None
 
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-        cache_channel = getattr(config, "CACHE_CHANNEL", None)
+        
+        # DYNAMIC CHANNEL ROUTING (Routes lookups based on media format format)
+        if video:
+            cache_channel = getattr(config, "VIDEO_CACHE_CHANNEL", None)
+        else:
+            cache_channel = getattr(config, "AUDIO_CACHE_CHANNEL", None)
         
         # -----------------------------------------------------------------
         # LAYER 1: Check Local Storage Cache first
@@ -139,37 +143,35 @@ class YouTube:
         if cached_files:
             for file_name in cached_files:
                 file_path = os.path.join(DOWNLOAD_DIR, file_name)
-                if video and file_path.endswith((".mp4", ".mkv", ".webm")):
+                if video and file_path.endswith((".mp4", ".mkv")):
                     return file_path
                 elif not video and file_path.endswith((".webm", ".m4a", ".mp3")):
                     return file_path
-            return os.path.join(DOWNLOAD_DIR, cached_files[0])
 
         # -----------------------------------------------------------------
-        # LAYER 2: Cloud Channel DB Extraction (Anti-Ban Architecture)
+        # LAYER 2: Cloud Channel DB Extraction
         # -----------------------------------------------------------------
         if cache_channel:
             msg = None
             
-            # Step A: Check MongoDB first (0% Telegram overhead)
+            # Step A: MongoDB Match (Targets correct storage parameters)
             if self.cache_col is not None:
                 try:
-                    cache_data = await self.cache_col.find_one({"video_id": video_id})
+                    cache_data = await self.cache_col.find_one({"video_id": video_id, "video": video})
                     if cache_data:
                         msg_id = cache_data.get("message_id")
-                        logger.info(f"MongoDB hit for ID {video_id}. Main Bot fetching message directly...")
+                        logger.info(f"MongoDB hit for ID {video_id}. Fetching from channel: {cache_channel}...")
                         msg = await app.get_messages(chat_id=cache_channel, message_ids=msg_id)
                         if msg and msg.empty:
                             msg = None
                 except Exception as db_err:
                     logger.error(f"MongoDB collection query error: {db_err}")
             
-            # Step B: Read-Only Userbot Search Fallback Rotation (Budget Setup Safety)
+            # Step B: Read-Only Userbot Search Fallback (Scoped precisely to target channel)
             if not msg:
                 from AloneX import userbot
                 available_clients = []
                 
-                # Check for Assistant 1 dynamically. If 2 & 3 don't exist, it safely skips them.
                 if hasattr(userbot, "one") and userbot.one and getattr(userbot.one, "is_connected", False): 
                     available_clients.append(("Assistant 1", userbot.one))
                 if hasattr(userbot, "two") and userbot.two and getattr(userbot.two, "is_connected", False): 
@@ -179,38 +181,39 @@ class YouTube:
                 
                 for client_name, client in available_clients:
                     try:
-                        # Userbots ONLY perform text search lookups to extract a message ID
+                        # Userbot targets the separated destination channel, optimizing speed
                         async for m in client.search_messages(chat_id=cache_channel, query=video_id, limit=1):
-                            if m.video or m.audio or m.document:
-                                # We hand the ID to the main Bot token to bypass userbot flood limits
+                            if video and m.video:
                                 msg = await app.get_messages(chat_id=cache_channel, message_ids=m.id)
                                 break
-                        break  
+                            elif not video and (m.audio or m.document or m.voice):
+                                msg = await app.get_messages(chat_id=cache_channel, message_ids=m.id)
+                                break
+                        if msg:
+                            break  
                     except FloodWait as fw:
-                        logger.warning(f"{client_name} caught in flood wait. Rotating or cooling down...")
+                        logger.warning(f"{client_name} caught in flood wait. Rotating...")
                         await asyncio.sleep(1)
                         continue
                     except Exception as ub_err:
-                        logger.error(f"{client_name} text query error: {ub_err}")
+                        logger.error(f"{client_name} search query error: {ub_err}")
                         continue
 
-            # Step C: Downstream Media Extraction (Executed ONLY by Bot Token)
-            if msg and (msg.video or msg.audio or msg.document):
+            # Step C: Downstream Media Extraction
+            if msg and (msg.video or msg.audio or msg.document or msg.voice):
                 try:
-                    media = msg.video or msg.audio or msg.document
+                    media = msg.video or msg.audio or msg.document or msg.voice
                     ext = "mp4" if msg.video else ("m4a" if msg.audio else "webm")
-                    if media.file_name and "." in media.file_name:
+                    if hasattr(media, "file_name") and media.file_name and "." in media.file_name:
                         ext = media.file_name.split(".")[-1]
                         
                     local_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.{ext}")
-                    
-                    # Main Bot runs the download, using block=True to prevent voice chat frame skipping
                     await app.download_media(message=msg, file_name=local_path, block=True)
                     
                     if os.path.exists(local_path):
                         if self.cache_col is not None:
                             await self.cache_col.update_one(
-                                {"video_id": video_id},
+                                {"video_id": video_id, "video": video},
                                 {"$set": {"message_id": msg.id, "title": title.lower(), "video": bool(msg.video)}},
                                 upsert=True
                             )
@@ -219,7 +222,7 @@ class YouTube:
                     logger.error(f"Main Bot failed executing media file stream: {process_err}")
 
         # -----------------------------------------------------------------
-        # LAYER 3: Core YouTube DL Pipeline (Only if nowhere else found)
+        # LAYER 3: Core YouTube DL Pipeline
         # -----------------------------------------------------------------
         url = f"https://www.youtube.com/watch?v={video_id}"
         cookie_file = self.get_cookies()
@@ -249,9 +252,10 @@ class YouTube:
             if os.path.exists(downloaded_file):
                 if cache_channel:
                     try:
-                        cloud_caption = f"Saves:\n{video_id}\n\n{video_id}\nTitle: {final_title}"
+                        format_str = "Video" if video else "Audio"
+                        cloud_caption = f"Saves: {format_str}\n{video_id}\n\nTitle: {final_title}"
                         
-                        # Main Bot performs the backup upload task
+                        # Uploads items directly to their separated channel destinations
                         if video:
                             saved_msg = await app.send_video(chat_id=cache_channel, video=downloaded_file, caption=cloud_caption)
                         else:
@@ -259,7 +263,7 @@ class YouTube:
                         
                         if saved_msg and self.cache_col is not None:
                             await self.cache_col.update_one(
-                                {"video_id": video_id},
+                                {"video_id": video_id, "video": video},
                                 {"$set": {"message_id": saved_msg.id, "title": final_title.lower(), "video": video}},
                                 upsert=True
                             )
