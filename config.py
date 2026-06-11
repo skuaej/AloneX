@@ -14,7 +14,9 @@ class Config:
 
         self.LOGGER_ID = int(getenv("LOGGER_ID", "Apna Log Group Id Dalo"))
         self.OWNER_ID = int(getenv("OWNER_ID", "8827902968"))
-        
+        # Add this inside your config.py file
+CACHE_CHANNEL = -1004068406600  # Replace this with your actual Telegram Channel numeric ID
+
         self.SESSION1 = getenv("SESSION", "Apna String Dalo")
         self.SESSION2 = getenv("SESSION2", None)
         self.SESSION3 = getenv("SESSION3", None)
