@@ -1,228 +1,329 @@
+# Copyright (c) 2025 Nand Yaduwanshi <NoxxOP>
+# Location: Supaul, Bihar
+#
+# All rights reserved.
+#
+# This code is the intellectual property of Nand Yaduwanshi.
+# You are not allowed to copy, modify, redistribute, or use this
+# code for commercial or personal projects without explicit permission.
+#
+# Allowed:
+# - Forking for personal learning
+# - Submitting improvements via pull requests
+#
+# Not Allowed:
+# - Claiming this code as your own
+# - Re-uploading without credit or permission
+# - Selling or using commercially
+#
+# Contact for permissions:
+# Email: badboy809075@gmail.com
+
+
 import asyncio
+from pyrogram import filters
+from pyrogram.enums import ChatMembersFilter, ParseMode
+from pyrogram.errors import FloodWait
 import random
-from pyrogram import Client, filters
-from pyrogram.enums import ChatType, ChatMemberStatus
-from pyrogram.errors import UserNotParticipant
-from pyrogram.types import ChatPermissions
+import re
 
-# Changed import to match your bot
-from AloneX import app 
+from AloneX import import app
 
-spam_chats = []
+SPAM_CHATS = []
+EMOJI = [
+    "🦋🦋🦋🦋🦋",
+    "🧚🌸🧋🍬🫖",
+    "🥀🌷🌹🌺💐",
+    "🌸🌿💮🌱🌵",
+    "❤️💚💙💜🖤",
+    "💓💕💞💗💖",
+    "🌸💐🌺🌹🦋",
+    "🍔🦪🍛🍲🥗",
+    "🍎🍓🍒🍑🌶️",
+    "🧋🥤🧋🥛🍷",
+    "🍬🍭🧁🎂🍡",
+    "🍨🧉🍺☕🍻",
+    "🥪🥧🍦🍥🍚",
+    "🫖☕🍹🍷🥛",
+    "☕🧃🍩🍦🍙",
+    "🍁🌾💮🍂🌿",
+    "🌨️🌥️⛈️🌩️🌧️",
+    "🌷🏵️🌸🌺💐",
+    "💮🌼🌻🍀🍁",
+    "🧟🦸🦹🧙👸",
+    "🧅🍠🥕🌽🥦",
+    "🐷🐹🐭🐨🐻‍❄️",
+    "🦋🐇🐀🐈🐈‍⬛",
+    "🌼🌳🌲🌴🌵",
+    "🥩🍋🍐🍈🍇",
+    "🍴🍽️🔪🍶🥃",
+    "🕌🏰🏩⛩️🏩",
+    "🎉🎊🎈🎂🎀",
+    "🪴🌵🌴🌳🌲",
+    "🎄🎋🎍🎑🎎",
+    "🦅🦜🕊️🦤🦢",
+    "🦤🦩🦚🦃🦆",
+    "🐬🦭🦈🐋🐳",
+    "🐔🐟🐠🐡🦐",
+    "🦩🦀🦑🐙🦪",
+    "🐦🦂🕷️🕸️🐚",
+    "🥪🍰🥧🍨🍨",
+    "🥬🍉🧁🧇🔮",
+]
 
-EMOJI = [ "🦋🦋🦋🦋🦋",
-          "🧚🌸🧋🍬🫖",
-          "🥀🌷🌹🌺💐",
-          "🌸🌿💮🌱🌵",
-          "❤️💚💙💜🖤",
-          "💓💕💞💗💖",
-          "🌸💐🌺🌹🦋",
-          "🍔🦪🍛🍲🥗",
-          "🍎🍓🍒🍑🌶️",
-          "🧋🥤🧋🥛🍷",
-          "🍬🍭🧁🎂🍡",
-          "🍨🧉🍺☕🍻",
-          "🥪🥧🍦🍥🍚",
-          "🫖☕🍹🍷🥛",
-          "☕🧃🍩🍦🍙",
-          "🍁🌾💮🍂🌿",
-          "🌨️🌥️⛈️🌩️🌧️",
-          "🌷🏵️🌸🌺💐",
-          "💮🌼🌻🍀🍁",
-          "🧟🦸🦹🧙👸",
-          "🧅🍠🥕🌽🥦",
-          "🐷🐹🐭🐨🐻‍❄️",
-          "🦋🐇🐀🐈🐈‍⬛",
-          "🌼🌳🌲🌴🌵",
-          "🥩🍋🍐🍈🍇",
-          "🍴🍽️🔪🍶🥃",
-          "🕌🏰🏩⛩️🏩",
-          "🎉🎊🎈🎂🎀",
-          "🪴🌵🌴🌳🌲",
-          "🎄🎋🎍🎑🎎",
-          "🦅🦜🕊️🦤🦢",
-          "🦤🦩🦚🦃🦆",
-          "🐬🦭🦈🐋🐳",
-          "🐔🐟🐠🐡🦐",
-          "🦩🦀🦑🐙🦪",
-          "🐦🦂🕷️🕸️🐚",
-          "🥪🍰🥧🍨🍨",
-          " 🥬🍉🧁🧇",
-        ]
+def clean_text(text):
+    """Escape markdown special characters"""
+    if not text:
+        return ""
+    return re.sub(r'([_*()~`>#+-=|{}.!])', r'\\1', text)
 
-TAGMES = [ " ** ʜᴇʏ ʙᴀʙʏ ᴋᴀʜᴀ ʜᴏ 🤗** ",
-           " ** ᴏʏᴇ sᴏ ɢʏᴇ ᴋʏᴀ ᴏɴʟɪɴᴇ ᴀᴀᴏ 😊** ",
-           " ** ᴠᴄ ᴄʜᴀʟᴏ ʙᴀᴛᴇɴ ᴋᴀʀᴛᴇ ʜᴀɪɴ ᴋᴜᴄʜ ᴋᴜᴄʜ 😃** ",
-           " ** ᴋʜᴀɴᴀ ᴋʜᴀ ʟɪʏᴇ ᴊɪ..?? 🥲** ",
-           " ** ɢʜᴀʀ ᴍᴇ sᴀʙ ᴋᴀɪsᴇ ʜᴀɪɴ ᴊɪ 🥺** ",
-           " ** ᴘᴛᴀ ʜᴀɪ ʙᴏʜᴏᴛ ᴍɪss ᴋᴀʀ ʀʜɪ ᴛʜɪ ᴀᴀᴘᴋᴏ 🤭** ",
-           " ** ᴏʏᴇ ʜᴀʟ ᴄʜᴀʟ ᴋᴇsᴀ ʜᴀɪ..?? 🤨** ",
-           " ** ᴍᴇʀɪ ʙʜɪ sᴇᴛᴛɪɴɢ ᴋᴀʀʙᴀ ᴅᴏɢᴇ..?? 🙂** ",
-           " ** ᴀᴀᴘᴋᴀ ɴᴀᴍᴇ ᴋʏᴀ ʜᴀɪ..?? 🥲** ",
-           " ** ɴᴀsᴛᴀ ʜᴜᴀ ᴀᴀᴘᴋᴀ..?? 😋** ",
-           " ** ᴍᴇʀᴇ ᴋᴏ ᴀᴘɴᴇ ɢʀᴏᴜᴘ ᴍᴇ ᴋɪᴅɴᴀᴘ ᴋʀ ʟᴏ 😍** ",
-           " ** ᴀᴀᴘᴋɪ ᴘᴀʀᴛɴᴇʀ ᴀᴀᴘᴋᴏ ᴅʜᴜɴᴅ ʀʜᴇ ʜᴀɪɴ ᴊʟᴅɪ ᴏɴʟɪɴᴇ ᴀʏɪᴀᴇ 😅** ",
-           " ** ᴍᴇʀᴇ sᴇ ᴅᴏsᴛɪ ᴋʀᴏɢᴇ..?? 🤔** ",
-           " ** ᴇᴅʜᴀʀ ᴅᴇᴋʜᴏ ᴋʏᴀ ʜᴀɪ @ONE_WAS_SIGMA ...😘** ",
-           " ** ʙᴀʙᴜ ʏᴇ ᴅᴇᴋʜᴏ ᴀʟᴘʜᴀ ᴋᴀ ᴀᴅᴅᴀ @Oye_Careless... 😎** ",
-           " ** sᴏɴᴇ ᴄʜᴀʟ ɢʏᴇ ᴋʏᴀ 🙄** ",
-           " ** ᴇᴋ sᴏɴɢ ᴘʟᴀʏ ᴋʀᴏ ɴᴀ ᴘʟss 😕** ",
-           " ** ᴀᴀᴘ ᴋᴀʜᴀ sᴇ ʜᴏ..?? 🙃** ",
-           " ** ʜᴇʟʟᴏ ᴊɪ ɴᴀᴍᴀsᴛᴇ 😛** ",
-           " ** ʜᴇʟʟᴏ ʙᴀʙʏ ᴋᴋʀʜ..? 🤔** ",
-           " ** ᴅᴏ ʏᴏᴜ ᴋɴᴏᴡ ᴡʜᴏ ɪs ᴍʏ ᴏᴡɴᴇʀ.? ☺️** ",
-           " ** ᴄʜʟᴏ ᴋᴜᴄʜ ɢᴀᴍᴇ ᴋʜᴇʟᴛᴇ ʜᴀɪɴ.🤗** ",
-           " ** ᴀᴜʀ ʙᴀᴛᴀᴏ ᴋᴀɪsᴇ ʜᴏ ʙᴀʙʏ 😇** ",
-           " ** ᴛᴜᴍʜᴀʀɪ ᴍᴜᴍᴍʏ ᴋʏᴀ ᴋᴀʀ ʀᴀʜɪ ʜᴀɪ 🤭** ",
-           " ** ᴍᴇʀᴇ sᴇ ʙᴀᴛ ɴᴏɪ ᴋʀᴏɢᴇ 🥺** ",
-           " ** ᴏʏᴇ ᴘᴀɢᴀʟ ᴏɴʟɪɴᴇ ᴀᴀ ᴊᴀ 😶** ",
-           " ** ᴀᴀᴊ ʜᴏʟɪᴅᴀʏ ʜᴀɪ ᴋʏᴀ sᴄʜᴏᴏʟ ᴍᴇ..?? 🤔** ",
-           " ** ᴏʏᴇ ɢᴏᴏᴅ ᴍᴏʀɴɪɴɢ 😜** ",
-           " ** sᴜɴᴏ ᴇᴋ ᴋᴀᴍ ʜᴀɪ ᴛᴜᴍsᴇ 🙂** ",
-           " ** ᴋᴏɪ sᴏɴɢ ᴘʟᴀʏ ᴋʀᴏ ɴᴀ 😪** ",
-           " ** ɴɪᴄᴇ ᴛᴏ ᴍᴇᴇᴛ ᴜʜ ☺** ",
-           " ** ᴍᴇʀᴀ ʙᴀʙᴜ ɴᴇ ᴛʜᴀɴᴀ ᴋʜᴀʏᴀ ᴋʏᴀ..? 🙊** ",
-           " ** sᴛᴜᴅʏ ᴄᴏᴍᴘʟᴇᴛᴇ ʜᴜᴀ?? 😺** ",
-           " ** ʙᴏʟᴏ ɴᴀ ᴋᴜᴄʜ ʏʀʀ 🥲** ",
-           " ** sᴏɴᴀʟɪ ᴋᴏɴ ʜᴀɪ...?? 😅** ",
-           " ** ᴛᴜᴍʜᴀʀɪ ᴇᴋ ᴘɪᴄ ᴍɪʟᴇɢɪ..? 😅** ",
-           " ** ᴍᴜᴍᴍʏ ᴀᴀ ɢʏɪ ᴋʏᴀ 😆** ",
-           " ** ᴏʀ ʙᴀᴛᴀᴏ ʙʜᴀʙʜɪ ᴋᴀɪsɪ ʜᴀɪ 😉** ",
-           " ** ɪ ʟᴏᴠᴇ ʏᴏᴜ 💚** ",
-           " ** ᴅᴏ ʏᴏᴜ ʟᴏᴠᴇ ᴍᴇ..? 👀** ",
-           " ** ʀᴀᴋʜɪ ᴋᴀʙ ʙᴀɴᴅ ʀᴀʜɪ ʜᴏ..?? 🙉** ",
-           " ** ᴇᴋ sᴏɴɢ sᴜɴᴀᴜ..? 😹** ",
-           " ** ᴏɴʟɪɴᴇ ᴀᴀ ᴊᴀ ʀᴇ sᴏɴɢ sᴜɴᴀ ʀᴀʜɪ ʜᴜ 😻** ",
-           " ** ɪɴsᴛᴀɢʀᴀᴍ ᴄʜᴀʟᴀᴛᴇ ʜᴏ..?? 🙃** ",
-           " ** ᴡʜᴀᴛsᴀᴘᴘ ɴᴜᴍʙᴇʀ ᴅᴏɢᴇ ᴀᴘɴᴀ ᴛᴜᴍ..? 😕** ",
-           " ** ᴛᴜᴍʜᴇ ᴋᴏɴ sᴀ ᴍᴜsɪᴄ sᴜɴɴᴀ ᴘᴀsᴀɴᴅ ʜᴀɪ..? 🙃** ",
-           " ** sᴀʀᴀ ᴋᴀᴍ ᴋʜᴀᴛᴀᴍ ʜᴏ ɢʏᴀ ᴀᴀᴘᴋᴀ..? 🙃** ",
-           " ** ᴋᴀʜᴀ sᴇ ʜᴏ ᴀᴀᴘ 😊** ",
-           " ** sᴜɴᴏ ɴᴀ 🧐** ",
-           " ** ᴍᴇʀᴀ ᴇᴋ ᴋᴀᴀᴍ ᴋᴀʀ ᴅᴏɢᴇ..? ♥️** ",
-           " ** ʙʏ ᴛᴀᴛᴀ ᴍᴀᴛ ʙᴀᴀᴛ ᴋᴀʀɴᴀ ᴀᴀᴊ ᴋᴇ ʙᴀᴅ 😠** ",
-           " ** ᴍᴏᴍ ᴅᴀᴅ ᴋᴀɪsᴇ ʜᴀɪɴ..? ❤** ",
-           " ** ᴋʏᴀ ʜᴜᴀ..? 🤔** ",
-           " ** ʙᴏʜᴏᴛ ʏᴀᴀᴅ ᴀᴀ ʀʜɪ ʜᴀɪ 😒** ",
-           " ** ʙʜᴜʟ ɢʏᴇ ᴍᴜᴊʜᴇ 😏** ",
-           " ** ᴊᴜᴛʜ ɴʜɪ ʙᴏʟɴᴀ ᴄʜᴀʜɪʏᴇ 🤐** ",
-           " ** ᴋʜᴀ ʟᴏ ʙʜᴀᴡ ᴍᴀᴛ ᴋʀᴏ ʙᴀᴀᴛ 😒** ",
-           " ** ᴋʏᴀ ʜᴜᴀ 😮**,",
-           " ** ʜɪɪ ʜᴏɪ ʜᴇʟʟᴏ 👀** ",
-           " ** ᴀᴀᴘᴋᴇ ᴊᴀɪsᴀ ᴅᴏsᴛ ʜᴏ sᴀᴛʜ ᴍᴇ ғɪʀ ɢᴜᴍ ᴋɪs ʙᴀᴀᴛ ᴋᴀ 🙈** ",
-           " ** ᴀᴀᴊ ᴍᴇ sᴀᴅ ʜᴏᴏɴ ☹️** ",
-           " ** ᴍᴜsᴊʜsᴇ ʙʜɪ ʙᴀᴀᴛ ᴋᴀʀ ʟᴏ ɴᴀ 🥺** ",
-           " ** ᴋʏᴀ ᴋᴀʀ ʀᴀʜᴇ ʜᴏ 👀** ",
-           " ** ᴋʏᴀ ʜᴀʟ ᴄʜᴀʟ ʜᴀɪ 🙂** ",
-           " ** ᴋᴀʜᴀ sᴇ ʜᴏ ᴀᴀᴘ..?🤔** ",
-           " ** ᴄʜᴀᴛᴛɪɴɢ ᴋᴀʀ ʟᴏ ɴᴀ..🥺** ",
-           " ** ᴍᴇ ᴍᴀsᴏᴏᴍ ʜᴜ ɴᴀ 🥺** ",
-           " ** ᴋᴀʟ ᴍᴀᴊᴀ ᴀʏᴀ ᴛʜᴀ ɴᴀ 😅** ",
-           " ** ɢʀᴏᴜᴘ ᴍᴇ ʙᴀᴀᴛ ᴋʏᴜ ɴᴀʜɪ ᴋᴀʀᴛᴇ ʜᴏ 😕** ",
-           " ** ᴀᴀᴘ ʀᴇʟᴀᴛɪᴏɴsʜɪᴘ ᴍᴇ ʜᴏ..? 👀** ",
-           " ** ᴋɪᴛɴᴀ ᴄʜᴜᴘ ʀᴀʜᴛᴇ ʜᴏ ʏʀʀ 😼** ",
-           " ** ᴀᴀᴘᴋᴏ ɢᴀɴᴀ ɢᴀɴᴇ ᴀᴀᴛᴀ ʜᴀɪ..? 😸** ",
-           " ** ɢʜᴜᴍɴᴇ ᴄʜᴀʟᴏɢᴇ..?? 🙈** ",
-           " ** ᴋʜᴜs ʀᴀʜᴀ ᴋᴀʀᴏ 🤞** ",
-           " ** ʜᴀᴍ ᴅᴏsᴛ ʙᴀɴ sᴀᴋᴛᴇ ʜᴀɪ...? 🥰** ",
-           " ** ᴋᴜᴄʜ ʙᴏʟ ᴋʏᴜ ɴʜɪ ʀᴀʜᴇ ʜᴏ.. 🥺** ",
-           " ** ᴋᴜᴄʜ ᴍᴇᴍʙᴇʀs ᴀᴅᴅ ᴋᴀʀ ᴅᴏ 🥲** ",
-           " ** sɪɴɢʟᴇ ʜᴏ ʏᴀ ᴍɪɴɢʟᴇ 😉** ",
-           " ** ᴀᴀᴏ ᴘᴀʀᴛʏ ᴋᴀʀᴛᴇ ʜᴀɪɴ 🥳** ",
-           " ** ʙɪᴏ ᴍᴇ ʟɪɴᴋ ʜᴀɪ ᴊᴏɪɴ ᴋᴀʀ ʟᴏ 🧐** ",
-           " ** ᴍᴜᴊʜᴇ ʙʜᴜʟ ɢʏᴇ ᴋʏᴀ 🥺** ",
-           " ** ʏᴀʜᴀ ᴀᴀ ᴊᴀᴏ @ALPHA_SAYS ᴍᴀsᴛɪ ᴋᴀʀᴇɴɢᴇ 🤭** ",
-           " ** ᴛʀᴜᴛʜ ᴀɴᴅ ᴅᴀʀᴇ ᴋʜᴇʟᴏɢᴇ..? 😊** ",
-           " ** ᴀᴀᴊ ᴍᴜᴍᴍʏ ɴᴇ ᴅᴀᴛᴀ ʏʀʀ 🥺** ",
-           " ** ᴊᴏɪɴ ᴋᴀʀ ʟᴏ @Purvi_Updates 🤗** ",
-           " ** ᴇᴋ ᴅɪʟ ʜᴀɪ ᴇᴋ ᴅɪʟ ʜɪ ᴛᴏ ʜᴀɪ 😗** ",
-           " ** ᴛᴜᴍʜᴀʀᴇ ᴅᴏsᴛ ᴋᴀʜᴀ ɢʏᴇ 🥺** ",
-           " ** ᴍʏ ᴄᴜᴛᴇ ᴏᴡɴᴇʀ @ll_ALPHA_BABY_lll 🥰** ",
-           " ** ᴋᴀʜᴀ ᴋʜᴏʏᴇ ʜᴏ ᴊᴀᴀɴ 😜** ",
-           " ** ɢᴏᴏᴅ ɴɪɢʜᴛ ᴊɪ ʙʜᴜᴛ ʀᴀᴛ ʜᴏ ɢʏɪ 🥰** ",
-         ]
-           
-@app.on_message(filters.command(["tagall", "spam", "tagmember", "utag", "stag", "hftag", "bstag", "eftag", "tag", "etag", "utag", "atag"], prefixes=["/", "@", "#"]))
-async def mentionall(client, message):
-    chat_id = message.chat.id
-    if message.chat.type == ChatType.PRIVATE:
-        return await message.reply("𝐓𝐡𝐢𝐬 𝐂𝐨𝐦𝐦𝐚𝐧𝐝 𝐎𝐧𝐥𝐲 𝐅𝐨𝐫 𝐆𝐫𝐨𝐮𝐩𝐬.")
+async def is_admin(chat_id, user_id):
+    admin_ids = [
+        admin.user.id
+        async for admin in app.get_chat_members(
+            chat_id, filter=ChatMembersFilter.ADMINISTRATORS
+        )
+    ]
+    return user_id in admin_ids
 
-    is_admin = False
-    try:
-        participant = await client.get_chat_member(chat_id, message.from_user.id)
-    except UserNotParticipant:
-        is_admin = False
-    else:
-        if participant.status in (
-            ChatMemberStatus.ADMINISTRATOR,
-            ChatMemberStatus.OWNER
-        ):
-            is_admin = True
-    if not is_admin:
-        return await message.reply("𝐘𝐨𝐮 𝐀𝐫𝐞 𝐍𝐨𝐭 𝐀𝐝𝐦𝐢𝐧 𝐁𝐚𝐛𝐲, 𝐎𝐧𝐥𝐲 𝐀𝐝𝐦𝐢𝐧𝐬 𝐂𝐚𝐧 . ")
-
-    if message.reply_to_message and message.text:
-        return await message.reply("/tagall  𝐓𝐲𝐩𝐞 𝐋𝐢𝐤𝐞 𝐓𝐡𝐢𝐬 / 𝐑𝐞𝐩𝐥𝐲 𝐀𝐧𝐲 𝐌𝐞𝐬𝐬𝐚𝐠𝐞 𝐍𝐞𝐱𝐭 𝐓𝐢𝐦𝐞 ")
-    elif message.text:
-        mode = "text_on_cmd"
-        msg = message.text
-    elif message.reply_to_message:
-        mode = "text_on_reply"
-        msg = message.reply_to_message
-        if not msg:
-            return await message.reply("/tagall  𝐓𝐲𝐩𝐞 𝐋𝐢𝐤𝐞 𝐓𝐡𝐢𝐬 / 𝐑𝐞𝐩𝐥𝐲 𝐀𝐧𝐲 𝐌𝐞𝐬𝐬𝐚𝐠𝐞 𝐍𝐞𝐱𝐭 𝐓𝐢𝐦𝐞 ...")
-    else:
-        return await message.reply("/tagall  𝐓𝐲𝐩𝐞 𝐋𝐢𝐤𝐞 𝐓𝐡𝐢𝐬 / 𝐑𝐞𝐩𝐥𝐲 𝐀𝐧𝐲 𝐌𝐞𝐬𝐬𝐚𝐠𝐞 𝐍𝐞𝐱𝐭 𝐓𝐢𝐦𝐞 ..")
-    if chat_id in spam_chats:
-        return await message.reply("𝐏𝐥𝐞𝐚𝐬𝐞 𝐀𝐭 𝐅𝐢𝐫𝐬𝐭 𝐒𝐭𝐨𝐩 𝐑𝐮𝐧𝐧𝐢𝐧𝐠 𝐏𝐫𝐨𝐜𝐞𝐬𝐬 ...")
+async def process_members(chat_id, members, text=None, replied=None):
+    tagged_members = 0
+    usernum = 0
+    usertxt = ""
+    emoji_sequence = random.choice(EMOJI)
+    emoji_index = 0
     
-    spam_chats.append(chat_id)
-    usrnum = 0
-    usrtxt = ""
-    async for usr in client.get_chat_members(chat_id):
-        if not chat_id in spam_chats:
+    for member in members:
+        if chat_id not in SPAM_CHATS:
             break
-        if usr.user.is_bot:
+        if member.user.is_deleted or member.user.is_bot:
             continue
-        usrnum += 1
-        usrtxt += f"[{usr.user.first_name}](tg://user?id={usr.user.id}) "
-
-        if usrnum == 1:
-            if mode == "text_on_cmd":
-                txt = f"{usrtxt} {random.choice(TAGMES)}"
-                await client.send_message(chat_id, txt)
-            elif mode == "text_on_reply":
-                await msg.reply(f"[{random.choice(EMOJI)}](tg://user?id={usr.user.id})")
-            await asyncio.sleep(4)
-            usrnum = 0
-            usrtxt = ""
-    try:
-        spam_chats.remove(chat_id)
-    except:
-        pass
-
-@app.on_message(filters.command(["tagoff", "tagstop"]))
-async def cancel_spam(client, message):
-    if not message.chat.id in spam_chats:
-        return await message.reply("𝐂𝐮𝐫𝐫𝐞𝐧𝐭𝐥𝐲 𝐈'𝐦 𝐍𝐨𝐭 ..")
-    is_admin = False
-    try:
-        participant = await client.get_chat_member(message.chat.id, message.from_user.id)
-    except UserNotParticipant:
-        is_admin = False
-    else:
-        if participant.status in (
-            ChatMemberStatus.ADMINISTRATOR,
-            ChatMemberStatus.OWNER
-        ):
-            is_admin = True
-    if not is_admin:
-        return await message.reply("𝐘𝐨𝐮 𝐀𝐫𝐞 𝐍𝐨𝐭 𝐀𝐝𝐦𝐢𝐧 𝐁𝐚𝐛𝐲, 𝐎𝐧𝐥𝐲 𝐀𝐝𝐦𝐢𝐧𝐬 𝐂𝐚𝐧 𝐓𝐚𝐠 𝐌𝐞𝐦𝐛𝐞𝐫𝐬.")
-    else:
+            
+        tagged_members += 1
+        usernum += 1
+        
+        emoji = emoji_sequence[emoji_index % len(emoji_sequence)]
+        usertxt += f"[{emoji}](tg://user?id={member.user.id}) "
+        emoji_index += 1
+        
+        if usernum == 5:
+            try:
+                if replied:
+                    await replied.reply_text(
+                        usertxt,
+                        disable_web_page_preview=True,
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                else:
+                    await app.send_message(
+                        chat_id,
+                        f"{text}\n{usertxt}",
+                        disable_web_page_preview=True,
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                await asyncio.sleep(2)  # Reduced sleep time to 2 seconds
+                usernum = 0
+                usertxt = ""
+                emoji_sequence = random.choice(EMOJI)
+                emoji_index = 0
+            except FloodWait as e:
+                await asyncio.sleep(e.value + 2)  # Extra buffer time
+            except Exception as e:
+                await app.send_message(chat_id, f"Error while tagging: {str(e)}")
+                continue
+    
+    if usernum > 0 and chat_id in SPAM_CHATS:
         try:
-            spam_chats.remove(message.chat.id)
-        except:
+            if replied:
+                await replied.reply_text(
+                    usertxt,
+                    disable_web_page_preview=True,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            else:
+                await app.send_message(
+                    chat_id,
+                    f"{text}\n\n{usertxt}",
+                    disable_web_page_preview=True,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+        except Exception as e:
+            await app.send_message(chat_id, f"Error sending final batch: {str(e)}")
+    
+    return tagged_members
+
+@app.on_message(
+    filters.command(["all", "allmention", "mentionall", "tagall"], prefixes=["/", "@"])
+)
+async def tag_all_users(_, message):
+    admin = await is_admin(message.chat.id, message.from_user.id)
+    if not admin:
+        return await message.reply_text("Only admins can use this command.")
+
+    if message.chat.id in SPAM_CHATS:  
+        return await message.reply_text(  
+            "Tagging process is already running. Use /cancel to stop it."  
+        )  
+    
+    replied = message.reply_to_message  
+    if len(message.command) < 2 and not replied:  
+        return await message.reply_text(  
+            "Give some text to tag all, like: `@all Hi Friends`"  
+        )  
+    
+    try:  
+        # Get all members at once to avoid multiple iterations
+        members = []
+        async for m in app.get_chat_members(message.chat.id):
+            members.append(m)
+        
+        total_members = len(members)
+        SPAM_CHATS.append(message.chat.id)
+        
+        text = None
+        if not replied:
+            text = clean_text(message.text.split(None, 1)[1])
+        
+        tagged_members = await process_members(
+            message.chat.id,
+            members,
+            text=text,
+            replied=replied
+        )
+        
+        summary_msg = f"""
+✅ Tagging completed!
+
+Total members: {total_members}
+Tagged members: {tagged_members}
+"""
+        await app.send_message(message.chat.id, summary_msg)
+
+    except FloodWait as e:  
+        await asyncio.sleep(e.value)  
+    except Exception as e:  
+        await app.send_message(message.chat.id, f"An error occurred: {str(e)}")  
+    finally:  
+        try:  
+            SPAM_CHATS.remove(message.chat.id)  
+        except Exception:  
             pass
-        return await message.reply("♦𝐒ᴏɴᴀʟɪ sᴛᴏᴘᴘᴇᴅ ᴛᴀɢɪɴɢ...♦")
-      
+
+@app.on_message(
+    filters.command(["admintag", "adminmention", "admins", "report"], prefixes=["/", "@"])
+)
+async def tag_all_admins(_, message):
+    if not message.from_user:
+        return
+
+    admin = await is_admin(message.chat.id, message.from_user.id)  
+    if not admin:  
+        return await message.reply_text("Only admins can use this command.")  
+
+    if message.chat.id in SPAM_CHATS:  
+        return await message.reply_text(  
+            "Tagging process is already running. Use /cancel to stop it."  
+        )  
+    
+    replied = message.reply_to_message  
+    if len(message.command) < 2 and not replied:  
+        return await message.reply_text(  
+            "Give some text to tag admins, like: `@admins Hi Friends`"  
+        )  
+    
+    try:  
+        # Get all admins at once
+        members = []
+        async for m in app.get_chat_members(
+            message.chat.id, filter=ChatMembersFilter.ADMINISTRATORS  
+        ):
+            members.append(m)
+        
+        total_admins = len(members)
+        SPAM_CHATS.append(message.chat.id)
+        
+        text = None
+        if not replied:
+            text = clean_text(message.text.split(None, 1)[1])
+        
+        tagged_admins = await process_members(
+            message.chat.id,
+            members,
+            text=text,
+            replied=replied
+        )
+        
+        summary_msg = f"""
+✅ Admin tagging completed!
+
+Total admins: {total_admins}
+Tagged admins: {tagged_admins}
+"""
+        await app.send_message(message.chat.id, summary_msg)
+
+    except FloodWait as e:  
+        await asyncio.sleep(e.value)  
+    except Exception as e:  
+        await app.send_message(message.chat.id, f"An error occurred: {str(e)}")  
+    finally:  
+        try:  
+            SPAM_CHATS.remove(message.chat.id)  
+        except Exception:  
+            pass
+
+@app.on_message(
+    filters.command(
+        [
+            "stopmention",
+            "cancel",
+            "cancelmention",
+            "offmention",
+            "mentionoff",
+            "cancelall",
+        ],
+        prefixes=["/", "@"],
+    )
+)
+async def cancelcmd(_, message):
+    chat_id = message.chat.id
+    admin = await is_admin(chat_id, message.from_user.id)
+    if not admin:
+        return await message.reply_text("Only admins can use this command.")
+
+    if chat_id in SPAM_CHATS:  
+        try:  
+            SPAM_CHATS.remove(chat_id)  
+        except Exception:  
+            pass  
+        return await message.reply_text("Tagging process successfully stopped!")  
+    else:  
+        return await message.reply_text("No tagging process is currently running!")
+
+MODULE = "Tᴀɢᴀʟʟ"
+HELP = """
+@all or /all | /tagall or @tagall | /mentionall or @mentionall [text] or [reply to any message] - Tag all users in your group with random emojis (changes every 5 users)
+
+/admintag or @admintag | /adminmention or @adminmention | /admins or @admins [text] or [reply to any message] - Tag all admins in your group with random emojis (changes every 5 users)
+
+/stopmention or @stopmention | /cancel or @cancel | /offmention or @offmention | /mentionoff or @mentionoff | /cancelall or @cancelall - Stop any running tagging process
+
+Note:
+
+1. These commands can only be used by admins
+2. The bot and assistant must be admins in your group
+3. Users will be tagged with random emojis that link to their profiles
+4. After completion, you'll get a summary with counts
+5. Tags 5 users at a time with unique emoji sequence for each batch
+"""
+
+
+# ©️ Copyright Reserved - @NoxxOP  Nand Yaduwanshi
+
+# ===========================================
+# ©️ 2025 Nand Yaduwanshi (aka @NoxxOP)
+# 🔗 GitHub : https://github.com/NoxxOP/ShrutiMusic
+# 📢 Telegram Channel : https://t.me/ShrutiBots
+# ===========================================
+
+
+# ❤️ Love From ShrutiBots
