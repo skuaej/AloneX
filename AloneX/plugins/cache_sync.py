@@ -24,17 +24,12 @@ if getattr(config, "VIDEO_CACHE_CHANNEL", None):
 # Listen to both channels for Audio, Video, or Document uploads
 @app.on_message(filters.chat(CACHE_CHANNELS) & (filters.audio | filters.video | filters.document))
 async def auto_sync_forwarded_media(client: Client, message: Message):
-    """
-    Listens continuously inside the storage channels. When media files are uploaded 
-    or forwarded in from external networks, it registers them directly to MongoDB.
-    """
     if cache_col is None or not CACHE_CHANNELS:
         return
 
     is_video = False
     media = None
 
-    # Determine media type and filter out non-media documents
     if message.video:
         media = message.video
         is_video = True
@@ -46,16 +41,9 @@ async def auto_sync_forwarded_media(client: Client, message: Message):
             if media.mime_type.startswith("video/"):
                 is_video = True
             elif not media.mime_type.startswith("audio/"):
-                return  # Skip non-media documents like PDFs or ZIPs
+                return
         else:
             return
-
-    # Extract clean meta-titles for indexing
-    media_title = "Unknown Track"
-    if message.audio and media.title:
-        media_title = f"{media.performer} - {media.title}" if media.performer else media.title
-    elif getattr(media, "file_name", None):
-        media_title = ".".join(media.file_name.split(".")[:-1])
 
     # Scan the message caption to see if it already contains an 11-character tracking ID
     video_id = None
@@ -66,20 +54,33 @@ async def auto_sync_forwarded_media(client: Client, message: Message):
                 video_id = line
                 break
 
+    # CPU SAVER: If the forwarded file already has an ID, check if we already saved it. 
+    # If it exists, SKIP it completely!
+    if video_id:
+        existing = await cache_col.find_one({"video_id": video_id, "video": is_video})
+        if existing:
+            logger.info(f"⏭️ Skipped duplicate forward for Tracking ID: {video_id}")
+            return
+
+    # Extract clean meta-titles for indexing
+    media_title = "Unknown Track"
+    if message.audio and media.title:
+        media_title = f"{media.performer} - {media.title}" if media.performer else media.title
+    elif getattr(media, "file_name", None):
+        media_title = ".".join(media.file_name.split(".")[:-1])
+
     # If it is a raw file forward without an explicit ID, build a custom tracked ID reference
     if not video_id:
         random_hash = secrets.token_hex(4)
         video_id = f"vid_{random_hash}" if is_video else f"mp3_{random_hash}"
         format_str = "Video" if is_video else "Audio"
         
-        # Inject tracking markers into the channel caption structure
         try:
             new_caption = f"Saves: {format_str}\n{video_id}\n\nTitle: {media_title}"
             await message.edit_caption(caption=new_caption)
         except Exception:
-            pass # Fails gracefully if the client is missing author modification permissions
+            pass 
 
-    # Commit the record index natively into MongoDB 
     try:
         await cache_col.update_one(
             {"video_id": video_id, "video": is_video},
@@ -93,7 +94,7 @@ async def auto_sync_forwarded_media(client: Client, message: Message):
             upsert=True
         )
         format_log = "Video" if is_video else "Audio"
-        logger.info(f"Successfully tracked and saved {format_log} asset: '{media_title}' with Tracking ID: {video_id}")
+        logger.info(f"✅ Successfully tracked and saved {format_log} asset: '{media_title}' with Tracking ID: {video_id}")
     except Exception as err:
         logger.error(f"Error writing to MongoDB in sync interceptor module: {err}")
         
