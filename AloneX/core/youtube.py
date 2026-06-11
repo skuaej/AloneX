@@ -22,6 +22,9 @@ class YouTube:
         )
         self.cookie_dir = "AloneX/cookies"
         
+        # CPU SAVER: Tracks active downloads to prevent duplicate processing
+        self.dl_locks = {}
+        
         # Initialize Database Collection Natively for exact ID matching
         self.cache_col = None
         if hasattr(config, "MONGO_URL") and config.MONGO_URL:
@@ -59,16 +62,13 @@ class YouTube:
 
     async def search(self, query: str, m_id: int, video: bool = False) -> Track | None:
         try:
-            # Clean and isolate raw Video ID if a link with tracking query params (?si=...) is given
             if self.valid(query):
                 match = re.match(self.regex, query)
                 if match and match.group(5):
                     extracted_id = match.group(5)
-                    # If it's a standard track (not a full playlist link), query directly by ID
                     if not extracted_id.startswith("PL"):
                         query = extracted_id
 
-            # Rely strictly on YouTube's parsing engine to fetch metadata
             _search = VideosSearch(query, limit=1)
             results = await _search.next()
             if results and results["result"]:
@@ -117,144 +117,153 @@ class YouTube:
 
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
         
-        # DYNAMIC CHANNEL ROUTING based on format
-        if video:
-            cache_channel = getattr(config, "VIDEO_CACHE_CHANNEL", None)
-        else:
-            cache_channel = getattr(config, "AUDIO_CACHE_CHANNEL", None)
-            
-        # Differentiates filenames in storage folder to fix cross-format interference
+        cache_channel = getattr(config, "VIDEO_CACHE_CHANNEL", None) if video else getattr(config, "AUDIO_CACHE_CHANNEL", None)
         file_prefix = f"{video_id}_video" if video else f"{video_id}_audio"
-        
-        # -----------------------------------------------------------------
-        # LAYER 1: Check Local Storage Cache first 
-        # -----------------------------------------------------------------
-        cached_files = [f for f in os.listdir(DOWNLOAD_DIR) if f.startswith(f"{file_prefix}.")]
-        if cached_files:
-            return os.path.join(DOWNLOAD_DIR, cached_files[0])
 
-        # -----------------------------------------------------------------
-        # LAYER 2: Cloud Channel DB Extraction
-        # -----------------------------------------------------------------
-        if cache_channel:
-            msg = None
-            
-            if self.cache_col is not None:
-                try:
-                    cache_data = await self.cache_col.find_one({"video_id": video_id, "video": video})
-                    if cache_data:
-                        msg_id = cache_data.get("message_id")
-                        logger.info(f"MongoDB hit for ID {video_id}. Fetching from channel: {cache_channel}...")
-                        msg = await app.get_messages(chat_id=cache_channel, message_ids=msg_id)
-                        if msg and msg.empty:
-                            msg = None
-                except Exception as db_err:
-                    logger.error(f"MongoDB collection query error: {db_err}")
-            
-            if not msg:
-                from AloneX import userbot
-                available_clients = []
+        # CPU SAVER: Create a lock for this specific file. 
+        # If multiple chats request this exact file simultaneously, they will wait here instead of crashing the CPU.
+        if file_prefix not in self.dl_locks:
+            self.dl_locks[file_prefix] = asyncio.Lock()
+
+        async with self.dl_locks[file_prefix]:
+            # -----------------------------------------------------------------
+            # LAYER 1: Check Local Storage Cache first 
+            # -----------------------------------------------------------------
+            cached_files = [f for f in os.listdir(DOWNLOAD_DIR) if f.startswith(f"{file_prefix}.")]
+            if cached_files:
+                logger.info(f"⚡ Local Cache hit! Instantly loading: {cached_files[0]}")
+                return os.path.join(DOWNLOAD_DIR, cached_files[0])
+
+            # -----------------------------------------------------------------
+            # LAYER 2: Cloud Channel DB Extraction
+            # -----------------------------------------------------------------
+            if cache_channel:
+                msg = None
                 
-                if hasattr(userbot, "one") and userbot.one and getattr(userbot.one, "is_connected", False): 
-                    available_clients.append(("Assistant 1", userbot.one))
-                if hasattr(userbot, "two") and userbot.two and getattr(userbot.two, "is_connected", False): 
-                    available_clients.append(("Assistant 2", userbot.two))
-                if hasattr(userbot, "three") and userbot.three and getattr(userbot.three, "is_connected", False): 
-                    available_clients.append(("Assistant 3", userbot.three))
-                
-                for client_name, client in available_clients:
+                if self.cache_col is not None:
                     try:
-                        async for m in client.search_messages(chat_id=cache_channel, query=video_id, limit=3):
-                            if video and m.video:
-                                msg = await app.get_messages(chat_id=cache_channel, message_ids=m.id)
-                                break
-                            elif not video and (m.audio or m.document or m.voice):
-                                msg = await app.get_messages(chat_id=cache_channel, message_ids=m.id)
-                                break
-                        if msg:
-                            break  
-                    except FloodWait as fw:
-                        logger.warning(f"{client_name} caught in flood wait. Rotating...")
-                        await asyncio.sleep(1)
-                        continue
-                    except Exception as ub_err:
-                        logger.error(f"{client_name} search query error: {ub_err}")
-                        continue
-
-            if msg and (msg.video or msg.audio or msg.document or msg.voice):
-                try:
-                    media = msg.video or msg.audio or msg.document or msg.voice
-                    ext = "mp4" if msg.video else ("m4a" if msg.audio else "webm")
-                    if hasattr(media, "file_name") and media.file_name and "." in media.file_name:
-                        ext = media.file_name.split(".")[-1]
-                        
-                    local_path = os.path.join(DOWNLOAD_DIR, f"{file_prefix}.{ext}")
-                    await app.download_media(message=msg, file_name=local_path, block=True)
+                        cache_data = await self.cache_col.find_one({"video_id": video_id, "video": video})
+                        if cache_data:
+                            msg_id = cache_data.get("message_id")
+                            logger.info(f"MongoDB hit for ID {video_id}. Fetching from channel: {cache_channel}...")
+                            msg = await app.get_messages(chat_id=cache_channel, message_ids=msg_id)
+                            if msg and msg.empty:
+                                msg = None
+                    except Exception as db_err:
+                        logger.error(f"MongoDB collection query error: {db_err}")
+                
+                if not msg:
+                    from AloneX import userbot
+                    available_clients = []
                     
-                    if os.path.exists(local_path):
-                        if self.cache_col is not None:
-                            await self.cache_col.update_one(
-                                {"video_id": video_id, "video": video},
-                                {"$set": {"message_id": msg.id, "title": title.lower(), "video": bool(msg.video)}},
-                                upsert=True
-                            )
-                        return local_path
-                except Exception as process_err:
-                    logger.error(f"Main Bot failed executing media file stream: {process_err}")
+                    if hasattr(userbot, "one") and userbot.one and getattr(userbot.one, "is_connected", False): 
+                        available_clients.append(("Assistant 1", userbot.one))
+                    if hasattr(userbot, "two") and userbot.two and getattr(userbot.two, "is_connected", False): 
+                        available_clients.append(("Assistant 2", userbot.two))
+                    if hasattr(userbot, "three") and userbot.three and getattr(userbot.three, "is_connected", False): 
+                        available_clients.append(("Assistant 3", userbot.three))
+                    
+                    for client_name, client in available_clients:
+                        try:
+                            async for m in client.search_messages(chat_id=cache_channel, query=video_id, limit=3):
+                                if video and m.video:
+                                    msg = await app.get_messages(chat_id=cache_channel, message_ids=m.id)
+                                    break
+                                elif not video and (m.audio or m.document or m.voice):
+                                    msg = await app.get_messages(chat_id=cache_channel, message_ids=m.id)
+                                    break
+                            if msg:
+                                break  
+                        except FloodWait as fw:
+                            logger.warning(f"{client_name} caught in flood wait. Rotating...")
+                            await asyncio.sleep(1)
+                            continue
+                        except Exception as ub_err:
+                            logger.error(f"{client_name} search query error: {ub_err}")
+                            continue
 
-        # -----------------------------------------------------------------
-        # LAYER 3: Core YouTube DL Pipeline (240p Quality Limit)
-        # -----------------------------------------------------------------
-        url = f"https://www.youtube.com/watch?v={video_id}"
-        cookie_file = self.get_cookies()
-
-        ydl_opts = {
-            'format': 'bestvideo[height<=240]+bestaudio/best' if video else 'bestaudio/best',
-            'outtmpl': os.path.join(DOWNLOAD_DIR, f"{file_prefix}.%(ext)s"),
-            'geo_bypass': True,
-            'nocheckcertificate': True,
-            'quiet': True,
-            'no_warnings': True,
-        }
-
-        if cookie_file:
-            ydl_opts['cookiefile'] = cookie_file
-
-        def extract():
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                return ydl.prepare_filename(info), info.get("title", "Unknown Track")
-
-        try:
-            loop = asyncio.get_event_loop()
-            
-            downloaded_file, extracted_title = await loop.run_in_executor(None, extract)
-            final_title = extracted_title if title == "Unknown Track" else title
-            
-            if os.path.exists(downloaded_file):
-                if cache_channel:
+                if msg and (msg.video or msg.audio or msg.document or msg.voice):
                     try:
-                        format_str = "Video" if video else "Audio"
-                        cloud_caption = f"Saves: {format_str}\n{video_id}\n\nTitle: {final_title}"
+                        media = msg.video or msg.audio or msg.document or msg.voice
+                        ext = "mp4" if msg.video else ("m4a" if msg.audio else "webm")
+                        if hasattr(media, "file_name") and media.file_name and "." in media.file_name:
+                            ext = media.file_name.split(".")[-1]
+                            
+                        local_path = os.path.join(DOWNLOAD_DIR, f"{file_prefix}.{ext}")
+                        await app.download_media(message=msg, file_name=local_path, block=True)
                         
-                        if video:
-                            saved_msg = await app.send_video(chat_id=cache_channel, video=downloaded_file, caption=cloud_caption)
-                        else:
-                            saved_msg = await app.send_audio(chat_id=cache_channel, audio=downloaded_file, caption=cloud_caption)
-                        
-                        if saved_msg and self.cache_col is not None:
-                            await self.cache_col.update_one(
-                                {"video_id": video_id, "video": video},
-                                {"$set": {"message_id": saved_msg.id, "title": final_title.lower(), "video": video}},
-                                upsert=True
-                            )
-                    except Exception as upload_err:
-                        logger.error(f"Failed copying file into backup storage channel: {upload_err}")
-                        
-                return downloaded_file
+                        if os.path.exists(local_path):
+                            if self.cache_col is not None:
+                                await self.cache_col.update_one(
+                                    {"video_id": video_id, "video": video},
+                                    {"$set": {"message_id": msg.id, "title": title.lower(), "video": bool(msg.video)}},
+                                    upsert=True
+                                )
+                            return local_path
+                    except Exception as process_err:
+                        logger.error(f"Main Bot failed executing media file stream: {process_err}")
 
-        except Exception as e:
-            logger.error(f"yt-dlp core pipeline execution exception: {e}")
-            
-        return None
-        
+            # -----------------------------------------------------------------
+            # LAYER 3: Core YouTube DL Pipeline (Max CPU Optimization)
+            # -----------------------------------------------------------------
+            url = f"https://www.youtube.com/watch?v={video_id}"
+            cookie_file = self.get_cookies()
+
+            # CPU SAVER: Target m4a/mp4 formats explicitly to stop PyTgCalls from using FFMpeg CPU power
+            format_query = (
+                'bestvideo[height<=240][ext=mp4]+bestaudio[ext=m4a]/best[height<=240]' 
+                if video else 
+                'bestaudio[ext=m4a]/bestaudio/best'
+            )
+
+            ydl_opts = {
+                'format': format_query,
+                'outtmpl': os.path.join(DOWNLOAD_DIR, f"{file_prefix}.%(ext)s"),
+                'geo_bypass': True,
+                'nocheckcertificate': True,
+                'quiet': True,
+                'no_warnings': True,
+                'updatetime': False, # CPU SAVER: Disables unnecessary disk I/O operations
+                'noplaylist': True,  # CPU SAVER: Prevents accidentally parsing heavy playlists
+            }
+
+            if cookie_file:
+                ydl_opts['cookiefile'] = cookie_file
+
+            def extract():
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    return ydl.prepare_filename(info), info.get("title", "Unknown Track")
+
+            try:
+                loop = asyncio.get_event_loop()
+                
+                downloaded_file, extracted_title = await loop.run_in_executor(None, extract)
+                final_title = extracted_title if title == "Unknown Track" else title
+                
+                if os.path.exists(downloaded_file):
+                    if cache_channel:
+                        try:
+                            format_str = "Video" if video else "Audio"
+                            cloud_caption = f"Saves: {format_str}\n{video_id}\n\nTitle: {final_title}"
+                            
+                            if video:
+                                saved_msg = await app.send_video(chat_id=cache_channel, video=downloaded_file, caption=cloud_caption)
+                            else:
+                                saved_msg = await app.send_audio(chat_id=cache_channel, audio=downloaded_file, caption=cloud_caption)
+                            
+                            if saved_msg and self.cache_col is not None:
+                                await self.cache_col.update_one(
+                                    {"video_id": video_id, "video": video},
+                                    {"$set": {"message_id": saved_msg.id, "title": final_title.lower(), "video": video}},
+                                    upsert=True
+                                )
+                        except Exception as upload_err:
+                            logger.error(f"Failed copying file into backup storage channel: {upload_err}")
+                            
+                    return downloaded_file
+
+            except Exception as e:
+                logger.error(f"yt-dlp core pipeline execution exception: {e}")
+                
+            return None
