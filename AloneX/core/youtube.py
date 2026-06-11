@@ -58,13 +58,43 @@ class YouTube:
 
     async def search(self, query: str, m_id: int, video: bool = False) -> Track | None:
         try:
-            if self.valid(query):
+            is_url = self.valid(query)
+
+            if is_url:
                 match = re.match(self.regex, query)
                 if match and match.group(5):
                     extracted_id = match.group(5)
                     if not extracted_id.startswith("PL"):
                         query = extracted_id
+            else:
+                # ---------------------------------------------------------
+                # LAYER 0: Strict Database Pre-Search (PRIORITIZES CACHE!)
+                # ---------------------------------------------------------
+                if self.cache_col is not None:
+                    try:
+                        # Regex safely matches exact phrases (e.g., "jo dil ke pass" matches "jo dil ke pass rahte hain")
+                        safe_query = re.escape(query.strip())
+                        db_match = await self.cache_col.find_one(
+                            {"title": {"$regex": safe_query, "$options": "i"}, "video": video}
+                        )
+                        if db_match:
+                            logger.info(f"⚡ DB Title Match Hit! '{query}' -> '{db_match.get('title')}'")
+                            return Track(
+                                id=db_match.get("video_id"),
+                                channel_name="Database Cache",
+                                duration="04:00", 
+                                duration_sec=240, 
+                                message_id=m_id,
+                                title=db_match.get("title", "Cached Track")[:25],
+                                thumbnail=getattr(config, "DEFAULT_THUMB", "https://telegra.ph/file/default.jpg"),
+                                url=f"https://youtube.com/watch?v={db_match.get('video_id')}",
+                                view_count="Cached",
+                                video=db_match.get("video", False),
+                            )
+                    except Exception as db_err:
+                        logger.error(f"DB Regex Search error: {db_err}")
 
+            # Fallback to YouTube if not found in Database
             _search = VideosSearch(query, limit=1)
             results = await _search.next()
             if results and results["result"]:
