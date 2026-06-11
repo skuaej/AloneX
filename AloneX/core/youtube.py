@@ -68,22 +68,30 @@ class YouTube:
                         query = extracted_id
             else:
                 # ---------------------------------------------------------
-                # LAYER 0: Smart 5-Word Database Matcher
+                # LAYER 0: Dynamic Step-Down Database Matcher (5 -> 4 -> 3 -> 2)
                 # ---------------------------------------------------------
                 if self.cache_col is not None:
                     try:
                         clean_query = query.strip()
                         words = clean_query.split()
-                        
-                        # Take up to the first 5 consecutive words to match in DB safely
-                        search_phrase = " ".join(words[:5])
-                        safe_phrase = re.escape(search_phrase)
-                        
-                        db_match = await self.cache_col.find_one(
-                            {"title": {"$regex": safe_phrase, "$options": "i"}, "video": video}
-                        )
+                        db_match = None
+                        matched_count = 0
+
+                        # Check starting from 5 words down to 2 words consecutively
+                        for word_count in [5, 4, 3, 2]:
+                            if len(words) >= word_count:
+                                search_phrase = " ".join(words[:word_count])
+                                safe_phrase = re.escape(search_phrase)
+                                
+                                db_match = await self.cache_col.find_one(
+                                    {"title": {"$regex": safe_phrase, "$options": "i"}, "video": video}
+                                )
+                                if db_match:
+                                    matched_count = word_count
+                                    break
+
                         if db_match:
-                            logger.info(f"⚡ 5-Word DB Match Hit! Typed: '{query}' -> Found: '{db_match.get('title')}'")
+                            logger.info(f"⚡ {matched_count}-Word DB Match Hit! Typed: '{query}' -> Found: '{db_match.get('title')}'")
                             return Track(
                                 id=db_match.get("video_id"),
                                 channel_name="Database Cache",
@@ -97,9 +105,9 @@ class YouTube:
                                 video=db_match.get("video", False),
                             )
                     except Exception as db_err:
-                        logger.error(f"DB Regex Search error: {db_err}")
+                        logger.error(f"DB Dynamic Search error: {db_err}")
 
-            # Fallback to YouTube if 5-word match is not in DB
+            # Fallback to YouTube if no match found in the step-down pass
             _search = VideosSearch(query, limit=1)
             results = await _search.next()
             if results and results["result"]:
