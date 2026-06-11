@@ -27,7 +27,7 @@ from pyrogram.errors import FloodWait
 import random
 import re
 
-from AloneX import import app
+from AloneX  import app
 
 SPAM_CHATS = []
 EMOJI = [
