@@ -70,11 +70,11 @@ class YouTube:
                     return Track(
                         id=db_match.get("video_id"),
                         channel_name="Database Cache",
-                        duration="Unknown",
-                        duration_sec=0,
+                        duration="03:00", # Fixed duration string to prevent 0-minute live stream bug
+                        duration_sec=180, # Fixed duration integer so the queue processor moves smoothly
                         message_id=m_id,
                         title=db_match.get("title", "Cached Audio")[:25],
-                        thumbnail=config.DEFAULT_THUMB,
+                        thumbnail=getattr(config, "DEFAULT_THUMB", "https://telegra.ph/file/default.jpg"),
                         url=f"https://youtube.com/watch?v={db_match.get('video_id')}",
                         view_count="N/A",
                         video=db_match.get("video", False),
@@ -272,4 +272,4 @@ class YouTube:
             logger.error(f"yt-dlp core pipeline execution exception: {e}")
             
         return None
-                    
+        
