@@ -24,7 +24,7 @@ if getattr(config, "VIDEO_CACHE_CHANNEL", None):
 # -----------------------------------------------------------------
 # LIVE TRACKING SYSTEM
 # -----------------------------------------------------------------
-ONGOING_SYNCS = []  # Keeps a live queue of currently processing files
+ONGOING_SYNCS = []
 
 @app.on_message(filters.command("total"))
 async def cache_total(client: Client, message: Message):
@@ -52,7 +52,7 @@ async def cache_total(client: Client, message: Message):
 
 @app.on_message(filters.command("ongoing"))
 async def cache_ongoing(client: Client, message: Message):
-    """Shows the user which files are currently being processed by the auto-sync system."""
+    """Shows the user which files are currently being processed."""
     if not ONGOING_SYNCS:
         return await message.reply_text("✅ No media is currently being synced. The queue is clear!")
     
@@ -92,7 +92,6 @@ async def auto_sync_forwarded_media(client: Client, message: Message):
         else:
             return
 
-    # Scan the message caption to see if it already contains an 11-character tracking ID
     video_id = None
     if message.caption:
         lines = [line.strip() for line in message.caption.split("\n") if line.strip()]
@@ -101,19 +100,25 @@ async def auto_sync_forwarded_media(client: Client, message: Message):
                 video_id = line
                 break
 
-    # CPU SAVER: Skip duplicate forwards instantly
-    if video_id:
-        existing = await cache_col.find_one({"video_id": video_id, "video": is_video})
-        if existing:
-            logger.info(f"⏭️ Skipped duplicate forward for Tracking ID: {video_id}")
-            return
-
     # Extract clean meta-titles for indexing
     media_title = "Unknown Track"
     if message.audio and media.title:
         media_title = f"{media.performer} - {media.title}" if media.performer else media.title
     elif getattr(media, "file_name", None):
         media_title = ".".join(media.file_name.split(".")[:-1])
+
+    # CPU SAVER: Check if we already saved this file by ID OR Title
+    if video_id:
+        existing = await cache_col.find_one({"video_id": video_id, "video": is_video})
+        if existing:
+            logger.info(f"⏭️ Skipped duplicate forward for Tracking ID: {video_id}")
+            return
+    else:
+        # Check by title so raw forwarded MP3s aren't duplicated
+        existing_title = await cache_col.find_one({"title": media_title.lower(), "video": is_video})
+        if existing_title:
+            logger.info(f"⏭️ Skipped duplicate file. Already exists in DB as: {existing_title.get('video_id')}")
+            return
 
     if not video_id:
         random_hash = secrets.token_hex(4)
