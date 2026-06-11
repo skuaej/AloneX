@@ -29,7 +29,7 @@ class Config:
         self.QUEUE_LIMIT = int(getenv("QUEUE_LIMIT", "8"))
         self.DURATION_LIMIT = int(getenv("DURATION_LIMIT", "3000"))
         self.PLAYLIST_LIMIT = int(getenv("PLAYLIST_LIMIT", "10"))
-        self.YOUTUBE_API_KEY = getenv("YOUTUBE_API_KEY", "INF28D")
+        self.YOUTUBE_API_KEY = getenv("YOUTUBE_API_KEY", "I8D")
         self.COOKIES_URL = [
             url for url in getenv("COOKIES_URL", "").split(" ")
             if url and "batbin.me" in url
