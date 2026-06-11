@@ -4,7 +4,7 @@ from pyrogram.types import Message
 from motor.motor_asyncio import AsyncIOMotorClient
 from AloneX import app, config, logger
 
-# Initialize database connections safely inside the plugin module
+# Initialize localized database hooks for fast access inside the plugin
 cache_col = None
 if hasattr(config, "MONGO_URL") and config.MONGO_URL:
     try:
@@ -12,24 +12,24 @@ if hasattr(config, "MONGO_URL") and config.MONGO_URL:
         db = mongo_client["AloneX_Cloud_Cache"]
         cache_col = db["tracks"]
     except Exception as e:
-        logger.error(f"Failed syncing MongoDB instance inside Sync plugin: {e}")
+        logger.error(f"Failed mapping MongoDB pipeline in Sync module: {e}")
 
 @app.on_message(filters.chat(config.CACHE_CHANNEL) & (filters.audio | filters.document))
 async def auto_sync_forwarded_audio(client: Client, message: Message):
     """
-    Automatically intercept and map any forwarded or uploaded audio file inside 
-    the cloud cache storage channel into your permanent MongoDB collection.
+    Listens continuously inside the storage channel. When audio files are uploaded 
+    or forwarded in from external networks, it registers them directly to MongoDB.
     """
     if cache_col is None:
         return
 
     media = message.audio or message.document
     
-    # Ensure it's actually an MP3 or audio asset container
+    # Filter out documents that aren't valid audio format variants
     if message.document and not (media.mime_type and media.mime_type.startswith("audio/")):
         return
 
-    # Extract clean title from metadata structures or fallback to file name
+    # Extract clean meta-titles for indexing
     song_title = "Unknown Track"
     if message.audio:
         if media.title:
@@ -39,29 +39,28 @@ async def auto_sync_forwarded_audio(client: Client, message: Message):
     elif message.document and media.file_name:
         song_title = ".".join(media.file_name.split(".")[:-1])
 
-    # Check if this file already has a YouTube/Cache ID in its caption string
+    # Scan the message caption to see if it already contains an 11-character tracking ID
     video_id = None
     if message.caption:
-        # Match lines that look like a unique 11 character id string
         lines = [line.strip() for line in message.caption.split("\n") if line.strip()]
         for line in lines:
             if len(line) == 11 and " " not in line and ":" not in line:
                 video_id = line
                 break
 
-    # If it's a raw forwarded MP3 without a tracking tag, generate a unique ID
+    # If it is a raw file forward without an explicit ID, build a custom tracked ID reference
     if not video_id:
-        random_hash = secrets.token_hex(4)  # 8 characters hash
+        random_hash = secrets.token_hex(4)
         video_id = f"mp3_{random_hash}"
         
-        # Add the tracking caption to the message so your userbots can search it if necessary
+        # Inject tracking markers into the channel caption structure
         try:
             new_caption = f"Saves:\n{video_id}\n\n{video_id}\nTitle: {song_title}"
             await message.edit_caption(caption=new_caption)
         except Exception:
-            pass  # Non-author accounts might not have permissions to edit captions
+            pass # Fails gracefully if the client missing author modification permissions
 
-    # Commit straight into MongoDB collection index
+    # Commit the record index natively into MongoDB 
     try:
         await cache_col.update_one(
             {"video_id": video_id},
@@ -76,5 +75,5 @@ async def auto_sync_forwarded_audio(client: Client, message: Message):
         )
         logger.info(f"Successfully tracked and saved MP3 file asset: '{song_title}' with Tracking ID: {video_id}")
     except Exception as err:
-        logger.error(f"Error executing collection save in sync interceptor: {err}")
-      
+        logger.error(f"Error writing to MongoDB in sync interceptor module: {err}")
+        
