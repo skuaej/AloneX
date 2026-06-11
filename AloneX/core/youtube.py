@@ -22,10 +22,8 @@ class YouTube:
         )
         self.cookie_dir = "AloneX/cookies"
         
-        # CPU SAVER: Tracks active downloads to prevent duplicate processing
         self.dl_locks = {}
         
-        # Initialize Database Collection Natively for exact ID matching
         self.cache_col = None
         if hasattr(config, "MONGO_URL") and config.MONGO_URL:
             try:
@@ -120,14 +118,12 @@ class YouTube:
         cache_channel = getattr(config, "VIDEO_CACHE_CHANNEL", None) if video else getattr(config, "AUDIO_CACHE_CHANNEL", None)
         file_prefix = f"{video_id}_video" if video else f"{video_id}_audio"
 
-        # CPU SAVER: Create a lock for this specific file. 
-        # If multiple chats request this exact file simultaneously, they will wait here instead of crashing the CPU.
         if file_prefix not in self.dl_locks:
             self.dl_locks[file_prefix] = asyncio.Lock()
 
         async with self.dl_locks[file_prefix]:
             # -----------------------------------------------------------------
-            # LAYER 1: Check Local Storage Cache first 
+            # LAYER 1: Check Local Storage Cache
             # -----------------------------------------------------------------
             cached_files = [f for f in os.listdir(DOWNLOAD_DIR) if f.startswith(f"{file_prefix}.")]
             if cached_files:
@@ -204,12 +200,11 @@ class YouTube:
                         logger.error(f"Main Bot failed executing media file stream: {process_err}")
 
             # -----------------------------------------------------------------
-            # LAYER 3: Core YouTube DL Pipeline (Max CPU Optimization)
+            # LAYER 3: Core YouTube DL Pipeline (Max Speed Optimization)
             # -----------------------------------------------------------------
             url = f"https://www.youtube.com/watch?v={video_id}"
             cookie_file = self.get_cookies()
 
-            # CPU SAVER: Target m4a/mp4 formats explicitly to stop PyTgCalls from using FFMpeg CPU power
             format_query = (
                 'bestvideo[height<=240][ext=mp4]+bestaudio[ext=m4a]/best[height<=240]' 
                 if video else 
@@ -223,8 +218,11 @@ class YouTube:
                 'nocheckcertificate': True,
                 'quiet': True,
                 'no_warnings': True,
-                'updatetime': False, # CPU SAVER: Disables unnecessary disk I/O operations
-                'noplaylist': True,  # CPU SAVER: Prevents accidentally parsing heavy playlists
+                'updatetime': False,
+                'noplaylist': True,
+                # SPEED HACKS: Uses concurrent chunking to download parts simultaneously
+                'concurrent_fragment_downloads': 10,
+                'http_chunk_size': 10485760, 
             }
 
             if cookie_file:
@@ -267,3 +265,4 @@ class YouTube:
                 logger.error(f"yt-dlp core pipeline execution exception: {e}")
                 
             return None
+                                              
