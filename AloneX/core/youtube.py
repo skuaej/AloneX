@@ -59,6 +59,16 @@ class YouTube:
 
     async def search(self, query: str, m_id: int, video: bool = False) -> Track | None:
         try:
+            # Clean and isolate raw Video ID if a link with tracking query params (?si=...) is given
+            if self.valid(query):
+                match = re.match(self.regex, query)
+                if match and match.group(5):
+                    extracted_id = match.group(5)
+                    # If it's a standard track (not a full playlist link), query directly by ID
+                    if not extracted_id.startswith("PL"):
+                        query = extracted_id
+
+            # Rely strictly on YouTube's parsing engine to fetch metadata
             _search = VideosSearch(query, limit=1)
             results = await _search.next()
             if results and results["result"]:
@@ -113,11 +123,11 @@ class YouTube:
         else:
             cache_channel = getattr(config, "AUDIO_CACHE_CHANNEL", None)
             
-        # FIX: Explicitly name local files as _video or _audio to prevent yt-dlp collision
+        # Differentiates filenames in storage folder to fix cross-format interference
         file_prefix = f"{video_id}_video" if video else f"{video_id}_audio"
         
         # -----------------------------------------------------------------
-        # LAYER 1: Check Local Storage Cache first (Simplified and 100% accurate)
+        # LAYER 1: Check Local Storage Cache first 
         # -----------------------------------------------------------------
         cached_files = [f for f in os.listdir(DOWNLOAD_DIR) if f.startswith(f"{file_prefix}.")]
         if cached_files:
@@ -178,7 +188,6 @@ class YouTube:
                     if hasattr(media, "file_name") and media.file_name and "." in media.file_name:
                         ext = media.file_name.split(".")[-1]
                         
-                    # FIX: Apply the prefix to files downloaded from Telegram
                     local_path = os.path.join(DOWNLOAD_DIR, f"{file_prefix}.{ext}")
                     await app.download_media(message=msg, file_name=local_path, block=True)
                     
@@ -201,7 +210,6 @@ class YouTube:
 
         ydl_opts = {
             'format': 'bestvideo[height<=240]+bestaudio/best' if video else 'bestaudio/best',
-            # FIX: Force yt-dlp to append the video/audio tag to the filename
             'outtmpl': os.path.join(DOWNLOAD_DIR, f"{file_prefix}.%(ext)s"),
             'geo_bypass': True,
             'nocheckcertificate': True,
@@ -249,4 +257,4 @@ class YouTube:
             logger.error(f"yt-dlp core pipeline execution exception: {e}")
             
         return None
-                    
+        
