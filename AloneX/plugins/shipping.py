@@ -15,19 +15,19 @@ from AloneX import app, config
 # ==========================================
 mongo_client = AsyncIOMotorClient(config.MONGO_URL)
 db = mongo_client.AloneX
-shipdb = db.shipping_list_text
+shipdb = db.shipping_list_single
 
-async def get_ships(chat_id: int, date: str):
+async def get_ship(chat_id: int, date: str):
     data = await shipdb.find_one({"chat_id": chat_id, "date": date})
     if not data:
         return None
-    return data.get("ships")
+    return data.get("couple")
 
-async def save_ships(chat_id: int, date: str, ships: list):
+async def save_ship(chat_id: int, date: str, couple: dict):
     doc = {
         "chat_id": chat_id,
         "date": date,
-        "ships": ships
+        "couple": couple
     }
     await shipdb.update_one(
         {"chat_id": chat_id, "date": date},
@@ -42,7 +42,7 @@ def get_date_by_delta(days_delta: int):
     return target_date.strftime("%d/%m/%Y")
 
 
-# 1️⃣ MAIN SHIPPING COMMAND (On-going for today)
+# 1️⃣ MAIN SHIPPING COMMAND (1 Couple per day)
 @app.on_message(filters.command(["ship", "shipping", "shipper", "ships"]))
 async def shipping_cmd(_, message):
     if message.chat.type == ChatType.PRIVATE:
@@ -53,49 +53,40 @@ async def shipping_cmd(_, message):
     tomorrow = get_date_by_delta(1)
     
     try:
-        # Check if shipping list already exists for today
-        saved_ships = await get_ships(chat_id, today)
+        # Check if today's couple is already selected
+        saved_couple = await get_ship(chat_id, today)
         
-        if not saved_ships:
-            msg = await message.reply_text("🪄 **Fɪɴᴅɪɴɢ ᴛʜᴇ ʙᴇsᴛ ᴍᴀᴛᴄʜᴇs ɪɴ ᴛʜᴇ ɢʀᴏᴜᴘ...**")
+        if not saved_couple:
+            msg = await message.reply_text("🪄 **Fɪɴᴅɪɴɢ ᴛʜᴇ ʙᴇsᴛ ᴍᴀᴛᴄʜ ɪɴ ᴛʜᴇ ɢʀᴏᴜᴘ...**")
             
-            members = []
-            async for member in app.get_chat_members(chat_id, limit=80):
-                if not member.user.is_bot and not member.user.is_deleted:
-                    # User info array: [mention, user_id, first_name]
-                    members.append(member.user)
+            all_members = []
+            async for member in app.get_chat_members(chat_id, limit=200):
+                if not member.user.is_deleted:
+                    all_members.append(member.user.mention)
                     
-            if len(members) < 2:
+            if len(all_members) < 2:
                 return await msg.edit("Gʀᴏᴜᴘ ᴍᴇɪɴ sᴜғғɪᴄɪᴇɴᴛ ᴍᴇᴍʙᴇʀs ɴᴀʜɪ ʜᴀɪɴ sʜɪᴘᴘɪɴɢ ᴋᴇ ʟɪʏᴇ!")
                 
-            random.shuffle(members)
+            random.shuffle(all_members)
             
-            ships_data = []
-            for _ in range(5):
-                if len(members) < 2:
-                    break
-                u1 = members.pop()
-                u2 = members.pop()
+            # Select only 1 couple
+            u1 = all_members.pop()
+            u2 = all_members.pop()
+            
+            couple_data = {
+                "u1_mention": u1,
+                "u2_mention": u2
+            }
                 
-                # Format: "Name (with link) + Name (with link)"
-                ships_data.append({
-                    "u1_mention": u1.mention,
-                    "u2_mention": u2.mention
-                })
-                
-            await save_ships(chat_id, today, ships_data)
+            # Save for exactly 24 hours
+            await save_ship(chat_id, today, couple_data)
             await msg.delete()
         else:
-            ships_data = saved_ships
+            couple_data = saved_couple
 
-        # Output Message Structure
-        emojis = ["💘", "💝", "💖", "💗", "💓"]
-        text = f"💖 **Tᴏᴘ Sʜɪᴘs Oғ Tʜᴇ Dᴀʏ (Oɴ-ɢᴏɪɴɢ)** 💖\n\n"
-        
-        for i, ship in enumerate(ships_data):
-            emoji = emojis[i] if i < len(emojis) else "✨"
-            text += f"**{i+1}.** {ship['u1_mention']} + {ship['u2_mention']} = {emoji}\n"
-            
+        # Output Message
+        text = f"💖 **Tᴏᴅᴀʏ's Bᴇsᴛ Cᴏᴜᴘʟᴇ** 💖\n\n"
+        text += f"🌟 {couple_data['u1_mention']} + {couple_data['u2_mention']} = 💘\n"
         text += f"\nNᴇxᴛ sʜɪᴘᴘɪɴɢ ᴡɪʟʟ ʙᴇ ᴜᴘᴅᴀᴛᴇᴅ ᴏɴ {tomorrow}!!"
         
         await message.reply_text(
@@ -112,7 +103,7 @@ async def shipping_cmd(_, message):
         await message.reply_text("Kᴜᴄʜ ɢᴀʟᴛɪ ʜᴏ ɢᴀʏɪ ʙᴀʙʏ, ʙᴀᴀᴅ ᴍᴇɪɴ ᴛʀʏ ᴋᴀʀɴᴀ!")
 
 
-# 2️⃣ LAST SHIPPING COMMAND (Fetches yesterday's results)
+# 2️⃣ LAST SHIPPING COMMAND (Fetches yesterday's 1 couple)
 @app.on_message(filters.command(["last_shipping", "lastship"]))
 async def last_shipping_cmd(_, message):
     if message.chat.type == ChatType.PRIVATE:
@@ -122,18 +113,14 @@ async def last_shipping_cmd(_, message):
     yesterday = get_date_by_delta(-1)
     
     try:
-        old_ships = await get_ships(chat_id, yesterday)
+        # Fetch yesterday's couple from database
+        old_couple = await get_ship(chat_id, yesterday)
         
-        if not old_ships:
+        if not old_couple:
             return await message.reply_text("😞 **Pɪᴄʜʟᴇ 𝟸𝟺 ɢʜᴀɴᴛᴏ ᴍᴇɪɴ ɪs ɢʀᴏᴜᴘ ᴍᴇɪɴ ᴋᴏɪ sʜɪᴘᴘɪɴɢ ɴᴀʜɪ ʜᴜɪ ᴛʜɪ!!**")
             
-        emojis = ["💘", "💝", "💖", "💗", "💓"]
-        text = f"⏳ **Lᴀsᴛ Sʜɪᴘᴘɪɴɢ Rᴇsᴜʟᴛs ({yesterday})** ⏳\n\n"
-        
-        for i, ship in enumerate(old_ships):
-            emoji = emojis[i] if i < len(emojis) else "✨"
-            text += f"**{i+1}.** {ship['u1_mention']} + {ship['u2_mention']} = {emoji}\n"
-            
+        text = f"⏳ **Lᴀsᴛ Sʜɪᴘᴘɪɴɢ Rᴇsᴜʟᴛ ({yesterday})** ⏳\n\n"
+        text += f"🌟 {old_couple['u1_mention']} + {old_couple['u2_mention']} = 💘\n"
         text += f"\n▲ Yᴇ ᴘɪᴄʜʟᴇ ᴅɪɴ ᴋᴀ ʀᴇsᴜʟᴛ ʜᴀɪ. Nᴀʏᴀ ᴅᴇᴋʜɴᴇ ᴋᴇ ʟɪʏᴇ /shipping ᴛʏᴘᴇ ᴋᴀʀᴇɪɴ."
         
         await message.reply_text(
