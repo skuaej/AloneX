@@ -68,26 +68,22 @@ class YouTube:
                         query = extracted_id
             else:
                 # ---------------------------------------------------------
-                # LAYER 0: Smart 2-Word Database Matcher
+                # LAYER 0: Smart 5-Word Database Matcher
                 # ---------------------------------------------------------
                 if self.cache_col is not None:
                     try:
                         clean_query = query.strip()
                         words = clean_query.split()
                         
-                        # Take ONLY the first two consecutive words to match in DB
-                        if len(words) >= 2:
-                            search_phrase = f"{words[0]} {words[1]}"
-                        else:
-                            search_phrase = clean_query
-                            
+                        # Take up to the first 5 consecutive words to match in DB safely
+                        search_phrase = " ".join(words[:5])
                         safe_phrase = re.escape(search_phrase)
                         
                         db_match = await self.cache_col.find_one(
                             {"title": {"$regex": safe_phrase, "$options": "i"}, "video": video}
                         )
                         if db_match:
-                            logger.info(f"⚡ 2-Word DB Match Hit! Typed: '{query}' -> Found: '{db_match.get('title')}'")
+                            logger.info(f"⚡ 5-Word DB Match Hit! Typed: '{query}' -> Found: '{db_match.get('title')}'")
                             return Track(
                                 id=db_match.get("video_id"),
                                 channel_name="Database Cache",
@@ -103,7 +99,7 @@ class YouTube:
                     except Exception as db_err:
                         logger.error(f"DB Regex Search error: {db_err}")
 
-            # Fallback to YouTube if 2-word match is not in DB
+            # Fallback to YouTube if 5-word match is not in DB
             _search = VideosSearch(query, limit=1)
             results = await _search.next()
             if results and results["result"]:
