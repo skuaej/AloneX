@@ -22,16 +22,13 @@ class YouTube:
         )
         self.cookie_dir = "AloneX/cookies"
         
-        # Initialize Database Index Collection Natively
+        # Initialize Database Collection Natively for exact ID matching
         self.cache_col = None
         if hasattr(config, "MONGO_URL") and config.MONGO_URL:
             try:
                 self.mongo_client = AsyncIOMotorClient(config.MONGO_URL)
                 self.db = self.mongo_client["AloneX_Cloud_Cache"]
                 self.cache_col = self.db["tracks"]
-                
-                # Automatically create text search indexes for plain-text matches
-                asyncio.ensure_future(self.cache_col.create_index([("title", "text")]))
             except Exception as e:
                 logger.error(f"Failed to initialize MongoDB Cache Indexer: {e}")
 
@@ -61,26 +58,8 @@ class YouTube:
         return bool(re.match(self.regex, url))
 
     async def search(self, query: str, m_id: int, video: bool = False) -> Track | None:
-        if self.cache_col is not None:
-            try:
-                db_match = await self.cache_col.find_one({"$text": {"$search": query}, "video": video})
-                if db_match:
-                    logger.info(f"Database text-index cache hit for query: '{query}'")
-                    return Track(
-                        id=db_match.get("video_id"),
-                        channel_name="Database Cache",
-                        duration="03:00", 
-                        duration_sec=180, 
-                        message_id=m_id,
-                        title=db_match.get("title", "Cached Audio")[:25],
-                        thumbnail=getattr(config, "DEFAULT_THUMB", "https://telegra.ph/file/default.jpg"),
-                        url=f"https://youtube.com/watch?v={db_match.get('video_id')}",
-                        view_count="N/A",
-                        video=db_match.get("video", False),
-                    )
-            except Exception as e:
-                logger.error(f"Database pre-search lookup error: {e}")
-
+        # We rely strictly on YouTube's search to get the exact matching ID.
+        # This prevents the bot from playing the wrong cached songs with similar words.
         try:
             _search = VideosSearch(query, limit=1)
             results = await _search.next()
@@ -154,7 +133,7 @@ class YouTube:
         if cache_channel:
             msg = None
             
-            # Step A: MongoDB Match (Targets correct storage parameters)
+            # Step A: MongoDB Exact ID Match (Targets correct storage parameters)
             if self.cache_col is not None:
                 try:
                     cache_data = await self.cache_col.find_one({"video_id": video_id, "video": video})
@@ -221,14 +200,14 @@ class YouTube:
                     logger.error(f"Main Bot failed executing media file stream: {process_err}")
 
         # -----------------------------------------------------------------
-        # LAYER 3: Core YouTube DL Pipeline (360p Quality Limit)
+        # LAYER 3: Core YouTube DL Pipeline (240p Quality Limit)
         # -----------------------------------------------------------------
         url = f"https://www.youtube.com/watch?v={video_id}"
         cookie_file = self.get_cookies()
 
-        # Enforces 360p resolution for videos to optimize speed and server bandwidth
+        # Enforces 240p resolution for videos to fix lag, optimize speed, and save server bandwidth
         ydl_opts = {
-            'format': 'bestvideo[height<=360]+bestaudio/best' if video else 'bestaudio/best',
+            'format': 'bestvideo[height<=240]+bestaudio/best' if video else 'bestaudio/best',
             'outtmpl': os.path.join(DOWNLOAD_DIR, f"{video_id}.%(ext)s"),
             'geo_bypass': True,
             'nocheckcertificate': True,
@@ -278,4 +257,4 @@ class YouTube:
             logger.error(f"yt-dlp core pipeline execution exception: {e}")
             
         return None
-      
+                    
