@@ -68,17 +68,26 @@ class YouTube:
                         query = extracted_id
             else:
                 # ---------------------------------------------------------
-                # LAYER 0: Strict Database Pre-Search (PRIORITIZES CACHE!)
+                # LAYER 0: Smart 2-Word Database Matcher
                 # ---------------------------------------------------------
                 if self.cache_col is not None:
                     try:
-                        # Regex safely matches exact phrases (e.g., "jo dil ke pass" matches "jo dil ke pass rahte hain")
-                        safe_query = re.escape(query.strip())
+                        clean_query = query.strip()
+                        words = clean_query.split()
+                        
+                        # Take ONLY the first two consecutive words to match in DB
+                        if len(words) >= 2:
+                            search_phrase = f"{words[0]} {words[1]}"
+                        else:
+                            search_phrase = clean_query
+                            
+                        safe_phrase = re.escape(search_phrase)
+                        
                         db_match = await self.cache_col.find_one(
-                            {"title": {"$regex": safe_query, "$options": "i"}, "video": video}
+                            {"title": {"$regex": safe_phrase, "$options": "i"}, "video": video}
                         )
                         if db_match:
-                            logger.info(f"⚡ DB Title Match Hit! '{query}' -> '{db_match.get('title')}'")
+                            logger.info(f"⚡ 2-Word DB Match Hit! Typed: '{query}' -> Found: '{db_match.get('title')}'")
                             return Track(
                                 id=db_match.get("video_id"),
                                 channel_name="Database Cache",
@@ -94,7 +103,7 @@ class YouTube:
                     except Exception as db_err:
                         logger.error(f"DB Regex Search error: {db_err}")
 
-            # Fallback to YouTube if not found in Database
+            # Fallback to YouTube if 2-word match is not in DB
             _search = VideosSearch(query, limit=1)
             results = await _search.next()
             if results and results["result"]:
