@@ -9,7 +9,7 @@ from telegraph import upload_file
 from PIL import Image, ImageDraw
 import requests
 
-from AloneX.z import get_image, get_couple, save_couple
+from AloneX.utils.z import get_image, get_couple, save_couple
 from AloneX import app
 
 
