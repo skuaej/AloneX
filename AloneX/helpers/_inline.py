@@ -43,11 +43,11 @@ class Inline:
                 ]
             )
             
-            # NEW: Seek controls (Row 2) - Colored Blue, Red, Green
+            # NEW: Seek controls with Close in the middle (Row 2)
             keyboard.append(
                 [
                     self.ikb(text="⏪ -20s", callback_data=f"controls seekback {chat_id}", style=ButtonStyle.PRIMARY),
-                    self.ikb(text="↻", callback_data=f"controls replay {chat_id}", style=ButtonStyle.DANGER),
+                    self.ikb(text="Close", callback_data="close", style=ButtonStyle.DANGER),
                     self.ikb(text="+20s ⏩", callback_data=f"controls seekforward {chat_id}", style=ButtonStyle.SUCCESS),
                 ]
             )
@@ -195,4 +195,4 @@ class Inline:
                 ],
             ]
         )
-      
+        
