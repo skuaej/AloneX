@@ -73,14 +73,20 @@ async def _controls(_, query: types.CallbackQuery):
             return await query.answer(query.lang["play_seek_no_dur"], show_alert=True)
             
         start_from = media.time + 20
-        if start_from + 10 > media.duration_sec:
-            start_from = media.duration_sec - 5
-
-        await query.answer("Fast Forwarding 20s...", show_alert=False)
-        await anon.play_media(chat_id, query.message, media, start_from)
-        media.time = start_from
-        status = "Seeked Forward"
-        reply = f"⏩ Fast forwarded by {user}"
+        
+        # NEW: Smart skipping if +20s reaches the end of the song
+        if start_from >= media.duration_sec:
+            await query.answer("Reached the end! Skipping to next...", show_alert=False)
+            await anon.play_next(chat_id) # This checks the queue and plays the next song automatically
+            action = "skip" # Changes the action so it deletes the old player message below
+            status = query.lang["skipped"]
+            reply = f"⏭ Skipped to next track by {user} (Fast Forward reached end)"
+        else:
+            await query.answer("Fast Forwarding 20s...", show_alert=False)
+            await anon.play_media(chat_id, query.message, media, start_from)
+            media.time = start_from
+            status = "Seeked Forward"
+            reply = f"⏩ Fast forwarded by {user}"
 
     elif action == "seekback":
         if not await db.playing(chat_id):
@@ -227,9 +233,19 @@ async def _settings_cb(_, query: types.CallbackQuery):
 async def close_menu(_, query: types.CallbackQuery):
     try:
         await query.answer()
+        # Grabs the name of the admin who clicked it
+        user = query.from_user.mention 
+        
+        # Deletes the big player message
         await query.message.delete()
         if query.message.reply_to_message:
             await query.message.reply_to_message.delete()
+            
+        # Sends the custom closed message
+        await app.send_message(
+            chat_id=query.message.chat.id,
+            text=f"𝐒ᴛʀᴇᴀᴍ Closed  𝐁ʏ {user}"
+        )
     except:
         pass
-              
+        
