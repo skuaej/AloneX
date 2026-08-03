@@ -74,11 +74,11 @@ async def _controls(_, query: types.CallbackQuery):
             
         start_from = media.time + 20
         
-        # NEW: Smart skipping if +20s reaches the end of the song
+        # Smart skipping if +20s reaches the end of the song
         if start_from >= media.duration_sec:
             await query.answer("Reached the end! Skipping to next...", show_alert=False)
-            await anon.play_next(chat_id) # This checks the queue and plays the next song automatically
-            action = "skip" # Changes the action so it deletes the old player message below
+            await anon.play_next(chat_id) 
+            action = "skip" 
             status = query.lang["skipped"]
             reply = f"⏭ Skipped to next track by {user} (Fast Forward reached end)"
         else:
@@ -228,12 +228,12 @@ async def _settings_cb(_, query: types.CallbackQuery):
         )
     )
 
+
 @app.on_callback_query(filters.regex("^close$") & ~app.bl_users)
-@can_manage_vc
 async def close_menu(_, query: types.CallbackQuery):
     try:
         await query.answer()
-        # Grabs the name of the admin who clicked it
+        # Grabs the name of the user who clicked it
         user = query.from_user.mention 
         
         # Deletes the big player message
@@ -248,4 +248,3 @@ async def close_menu(_, query: types.CallbackQuery):
         )
     except:
         pass
-        
