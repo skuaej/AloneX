@@ -128,12 +128,18 @@ class YouTube:
             'nocheckcertificate': True,
             'quiet': True,
             'no_warnings': True,
-            # Spoofing the client to bypass YouTube's bot detection
+            
+            # Bypass fix: Match your desktop cookies with the TV/Web client
             'extractor_args': {
-                'youtube': ['client=android,ios,tv']
+                'youtube': ['player_client=tv,web'] 
+            },
+            # Inject standard browser header so YouTube accepts the desktop cookies
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
         }
 
+        # Keep cookie integration intact
         if cookie_file:
             ydl_opts['cookiefile'] = cookie_file
 
@@ -154,3 +160,4 @@ class YouTube:
             logger.error(f"yt-dlp download pipeline broke for ID {video_id}: {e}")
             
         return None
+        
