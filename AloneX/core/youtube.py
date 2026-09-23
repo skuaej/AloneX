@@ -80,10 +80,10 @@ class YouTube:
             return None
 
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-        ext = "mp4" if video else "m4a"          # Eldian returns m4a for audio
+        ext = "mp4" if video else "m4a"
         file_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.{ext}")
 
-        # Return cached file
+        # Return cached file if exists
         if os.path.exists(file_path) and os.path.getsize(file_path) > 1024:
             return file_path
 
@@ -95,7 +95,7 @@ class YouTube:
                     timeout_sec = 600
                 else:
                     url = f"{API_URL}/audio"
-                    params = {"video_id": video_id, "quality": "192"}  # good quality
+                    params = {"video_id": video_id, "quality": "192"}
                     timeout_sec = 300
 
                 timeout = aiohttp.ClientTimeout(total=timeout_sec)
@@ -104,7 +104,7 @@ class YouTube:
                     url,
                     params=params,
                     timeout=timeout,
-                    allow_redirects=True          # IMPORTANT: follows 307 to Google CDN
+                    allow_redirects=True
                 ) as resp:
 
                     if resp.status != 200:
