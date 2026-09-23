@@ -66,7 +66,7 @@ class YouTube:
             logger.error(f"Playlist error: {e}")
         return tracks
 
-    # Eldian API Integrated Download Function (Keyless & Anti-Hang)
+    # Eldian API Integrated Download Function (Anti-Hang & Redirects Enabled)
     async def download(self, video_id: str, video: bool = False) -> str | None:
         if not video_id or len(video_id) < 3:
             return None
@@ -95,15 +95,17 @@ class YouTube:
                 }
 
                 timeout_limit = 600 if video else 300
-                logger.info(f"Downloading {video_id} via Eldian API... (Please wait)")
+                logger.info(f"Downloading {video_id} via Eldian API... (Following redirects)")
                 
                 async with session.get(
                     endpoint,
                     params=params,
                     headers=headers,
+                    allow_redirects=True, # THIS IS THE CRITICAL FIX for Google CDN
                     timeout=aiohttp.ClientTimeout(total=timeout_limit)
                 ) as resp:
-                    if resp.status != 200:
+                    
+                    if resp.status not in (200, 206): # CDN might return 206 Partial Content
                         error_text = await resp.text()
                         logger.error(f"API Download failed (Status: {resp.status}). Response: {error_text}")
                         return None
