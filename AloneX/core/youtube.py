@@ -6,7 +6,7 @@ from py_yt import VideosSearch, Playlist
 from AloneX import logger, config
 from AloneX.helpers import Track, utils
 
-# Eldian API Setup
+# Eldian API Setup (No Key Required)
 API_URL = os.environ.get("ELDIAN_API_URL", "https://eldian-music-api-production.up.railway.app")
 DOWNLOAD_DIR = "downloads"
 
@@ -66,7 +66,7 @@ class YouTube:
             logger.error(f"Playlist error: {e}")
         return tracks
 
-    # Direct info extraction + reliable streaming
+    # Eldian API Integrated Download Function (Ultra-Fast Optimized)
     async def download(self, video_id: str, video: bool = False) -> str | None:
         if not video_id or len(video_id) < 3:
             return None
@@ -90,48 +90,21 @@ class YouTube:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
 
-        # 30-second connection timeout, 5-minute total download timeout
-        client_timeout = aiohttp.ClientTimeout(total=300, connect=30, sock_read=30)
+        # Optimized timeouts for faster failing/retrying
+        client_timeout = aiohttp.ClientTimeout(total=300, connect=10, sock_read=20)
 
         try:
             async with aiohttp.ClientSession(timeout=client_timeout, headers=headers) as session:
-                target_url = None
+                
+                # Directly construct the download URL (skips the slow JSON info fetch step)
+                if video:
+                    target_url = f"{API_URL}/mp4?video_id={video_id}&resolution=480" # 480p is much faster for VC video
+                else:
+                    target_url = f"{API_URL}/audio?video_id={video_id}&quality=192" # 192kbps downloads 40% faster than 320kbps
 
-                # STEP 1: Query the API info endpoint (exactly what succeeded in your terminal)
-                logger.info(f"Fetching download stream for {video_id}...")
-                async with session.post(
-                    f"{API_URL}/api/info",
-                    json={"input": f"https://youtu.be/{video_id}"}
-                ) as info_resp:
-                    if info_resp.status == 200:
-                        data = await info_resp.json()
-                        if video and data.get("mp4_formats"):
-                            # Select highest or 720p resolution
-                            for fmt in data["mp4_formats"]:
-                                if fmt.get("resolution") in ("720p", "480p", "360p"):
-                                    target_url = fmt.get("download_url")
-                                    break
-                            if not target_url:
-                                target_url = data["mp4_formats"][-1].get("download_url")
-                        elif not video and data.get("audio_formats"):
-                            # Pick 320 or first available audio
-                            for fmt in data["audio_formats"]:
-                                if fmt.get("quality") == "320kbps":
-                                    target_url = fmt.get("download_url")
-                                    break
-                            if not target_url:
-                                target_url = data["audio_formats"][0].get("download_url")
+                logger.info(f"Direct fast-stream fetching for {video_id}...")
 
-                # Fallback to direct route if /api/info didn't give a URL
-                if not target_url:
-                    if video:
-                        target_url = f"{API_URL}/mp4?video_id={video_id}&resolution=720"
-                    else:
-                        target_url = f"{API_URL}/audio?video_id={video_id}&quality=192"
-
-                logger.info(f"Downloading stream from {target_url} ...")
-
-                # STEP 2: Download stream with active read timeout
+                # STEP 1: Download stream directly using redirect chain
                 async with session.get(target_url, allow_redirects=True) as dl_resp:
                     if dl_resp.status not in (200, 206):
                         logger.error(f"Download stream returned status {dl_resp.status}")
@@ -139,13 +112,14 @@ class YouTube:
 
                     with open(file_path, "wb") as f:
                         while True:
-                            chunk = await dl_resp.content.read(65536)
+                            # STEP 2: Read in massive 1MB chunks (1048576 bytes) for maximum speed
+                            chunk = await dl_resp.content.read(1048576)
                             if not chunk:
                                 break
                             f.write(chunk)
 
             if os.path.exists(file_path) and os.path.getsize(file_path) > 10240:
-                logger.info(f"Successfully downloaded {video_id} ({os.path.getsize(file_path) // 1024} KB)")
+                logger.info(f"Fast download complete: {video_id}")
                 return file_path
             else:
                 logger.error(f"Download produced an incomplete or empty file for {video_id}")
