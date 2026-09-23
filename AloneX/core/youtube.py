@@ -66,7 +66,7 @@ class YouTube:
             logger.error(f"Playlist error: {e}")
         return tracks
 
-    # ELDIAN API: ULTRA-FAST LOCAL DOWNLOADER
+    # ELDIAN API: DOWNLOADING VIA STANDARD ROUTING LINKS
     async def download(self, video_id: str, video: bool = False) -> str | None:
         if not video_id or len(video_id) < 3:
             return None
@@ -75,47 +75,32 @@ class YouTube:
         ext = "mp4" if video else "mp3"
         file_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.{ext}")
 
-        # 1. Use cached file if it exists
+        # 1. Use cached file if it exists to save time
         if os.path.exists(file_path) and os.path.getsize(file_path) > 10240:
             logger.info(f"Using locally cached file for {video_id}")
             return file_path
 
         try:
-            logger.info(f"Fast-downloading {video_id} to local server...")
+            logger.info(f"Downloading {video_id} using Eldian API Standard Links...")
             
-            target_url = None
+            # 2. Construct the exact URL you requested
+            if video:
+                target_url = f"{API_URL}/mp4?video_id={video_id}&resolution=480"
+            else:
+                target_url = f"{API_URL}/audio?video_id={video_id}&quality=192"
+
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
 
             async with aiohttp.ClientSession(headers=headers) as session:
-                # 2. Ping API for the freshest download link (Prevents CDN stalling)
-                async with session.post(
-                    f"{API_URL}/api/info",
-                    json={"input": f"https://youtu.be/{video_id}"},
-                    timeout=aiohttp.ClientTimeout(total=15)
-                ) as info_resp:
-                    if info_resp.status == 200:
-                        data = await info_resp.json()
-                        # Grab the lowest quality to ensure fastest possible download
-                        if video and data.get("mp4_formats"):
-                            target_url = data["mp4_formats"][0].get("download_url") # Usually 144p or 240p
-                        elif not video and data.get("audio_formats"):
-                            target_url = data["audio_formats"][0].get("download_url") # 128kbps
-
-                # Fallback if the info route fails
-                if not target_url:
-                    if video:
-                        target_url = f"{API_URL}/mp4?video_id={video_id}&resolution=360"
-                    else:
-                        target_url = f"{API_URL}/audio?video_id={video_id}&quality=128"
-
-                # 3. Download the file in massive chunks
+                
+                # 3. Download the file fast in large chunks, following redirects automatically
                 async with session.get(target_url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=120)) as dl_resp:
                     if dl_resp.status not in (200, 206):
-                        logger.error(f"API returned status {dl_resp.status}")
+                        logger.error(f"API returned status {dl_resp.status} for URL {target_url}")
                         return None
                         
                     with open(file_path, "wb") as f:
-                        async for chunk in dl_resp.content.iter_chunked(1048576): # 1 MB chunks for speed
+                        async for chunk in dl_resp.content.iter_chunked(1048576): # 1 MB chunks for maximum speed
                             f.write(chunk)
 
             # 4. Verify successful download
@@ -123,7 +108,7 @@ class YouTube:
                 logger.info(f"Successfully downloaded {video_id}! Ready to play.")
                 return file_path
             else:
-                logger.error(f"Downloaded file for {video_id} is corrupted.")
+                logger.error(f"Downloaded file for {video_id} is empty or corrupted.")
                 if os.path.exists(file_path):
                     os.remove(file_path)
                 return None
