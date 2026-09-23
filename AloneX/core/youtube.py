@@ -1,6 +1,7 @@
 import os
 import re
 import asyncio
+import aiohttp
 from py_yt import VideosSearch, Playlist
 from AloneX import logger, config
 from AloneX.helpers import Track, utils
@@ -65,7 +66,7 @@ class YouTube:
             logger.error(f"Playlist error: {e}")
         return tracks
 
-    # ELDIAN API: INSTANT DIRECT STREAMING (NO DOWNLOADING)
+    # ELDIAN API: INSTANT STREAMING WITH WARM-UP PING
     async def download(self, video_id: str, video: bool = False) -> str | None:
         if not video_id or len(video_id) < 3:
             return None
@@ -74,25 +75,38 @@ class YouTube:
         ext = "mp4" if video else "mp3"
         file_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.{ext}")
 
-        # Check if we accidentally have an old downloaded file cached locally
+        # 1. Check if we already have it downloaded from earlier
         if os.path.exists(file_path) and os.path.getsize(file_path) > 10240:
             logger.info(f"Using locally cached file for {video_id}")
             return file_path
 
-        # INSTEAD OF DOWNLOADING, WE JUST GIVE THE BOT THE DIRECT STREAM LINK!
         try:
-            # We use 128kbps for audio and 360p for video for maximum instant loading speed
+            logger.info(f"Warming up API stream for {video_id} (Preventing Voice Chat Timeout)...")
+            
+            # 2. WARM-UP PING: Force the API to process the video first
+            # This prevents PyTgCalls from crashing while the API is "thinking"
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{API_URL}/api/info",
+                    json={"input": f"https://youtu.be/{video_id}"},
+                    timeout=aiohttp.ClientTimeout(total=20)
+                ) as resp:
+                    if resp.status != 200:
+                        logger.error(f"Eldian API could not process {video_id} (Status: {resp.status})")
+                        return None
+                        
+            # 3. Now that the API has prepared the song, generate the direct stream link
             if video:
                 stream_url = f"{API_URL}/mp4?video_id={video_id}&resolution=360"
             else:
                 stream_url = f"{API_URL}/audio?video_id={video_id}&quality=128"
 
-            logger.info(f"Instant streaming {video_id} directly from API...")
-            
-            # Returning the URL directly to PyTgCalls! No downloading to server!
+            logger.info(f"Stream ready! Passing {video_id} directly to PyTgCalls.")
             return stream_url
 
+        except asyncio.TimeoutError:
+            logger.error(f"API Warm-up timed out for {video_id}. The API server is busy.")
+            return None
         except Exception as e:
             logger.error(f"Failed to generate stream link for {video_id}: {e}")
             return None
-
