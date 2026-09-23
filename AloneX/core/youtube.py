@@ -66,70 +66,68 @@ class YouTube:
             logger.error(f"Playlist error: {e}")
         return tracks
 
-    # ELDIAN API: FAST DIRECT STREAMING (NO SERVER DOWNLOADING)
+    # ELDIAN API: FAST PROXY DOWNLOADER (Satisfies AloneX File Check)
     async def download(self, video_id: str, video: bool = False) -> str | None:
         if not video_id or len(video_id) < 3:
             return None
 
-        # 1. Clear out any old broken downloads just in case
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
         ext = "mp4" if video else "mp3"
         file_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.{ext}")
+
+        # 1. Use cached file to skip downloading if already played
+        if os.path.exists(file_path) and os.path.getsize(file_path) > 10240:
+            logger.info(f"Using locally cached file for {video_id}")
+            return file_path
+
+        # Clear out broken empty files
         if os.path.exists(file_path):
-            try: 
-                os.remove(file_path)
-            except: 
-                pass
+            try: os.remove(file_path)
+            except: pass
 
         try:
-            logger.info(f"Fetching instant stream link for {video_id}...")
+            logger.info(f"Downloading {video_id} locally to satisfy bot requirements...")
             
-            # 2. Ping the API to get the clean stream URLs
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{API_URL}/api/info",
-                    json={"input": f"https://youtu.be/{video_id}"},
-                    timeout=aiohttp.ClientTimeout(total=20)
-                ) as resp:
-                    
-                    if resp.status != 200:
-                        logger.error(f"API could not process {video_id} (Status: {resp.status})")
+            # 2. Use the Proxy Stream endpoint to bypass Google CDN IP blocks
+            if video:
+                target_url = f"{API_URL}/stream?video_id={video_id}&type=mp4&resolution=360"
+            else:
+                target_url = f"{API_URL}/stream?video_id={video_id}&type=audio&quality=128"
+
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"}
+            
+            # 3. Download the file safely using chunks
+            client_timeout = aiohttp.ClientTimeout(total=300, connect=15, sock_read=30)
+            async with aiohttp.ClientSession(headers=headers, timeout=client_timeout) as session:
+                async with session.get(target_url, allow_redirects=True) as dl_resp:
+                    if dl_resp.status not in (200, 206):
+                        logger.error(f"API returned status {dl_resp.status} for URL {target_url}")
                         return None
                         
-                    data = await resp.json()
-            
-            target_url = None
-            
-            # 3. Extract the `/stream?...` URL which bypasses Google IP-blocks
-            if video and data.get("mp4_formats"):
-                # Use 360p or lowest for fast video streaming
-                for fmt in data["mp4_formats"]:
-                    if fmt.get("resolution") == "360p":
-                        target_url = fmt.get("stream_url")
-                        break
-                if not target_url:
-                    target_url = data["mp4_formats"][0].get("stream_url")
-                    
-            elif not video and data.get("audio_formats"):
-                # Use 128kbps for instant audio streaming
-                for fmt in data["audio_formats"]:
-                    if fmt.get("quality") == "128kbps":
-                        target_url = fmt.get("stream_url")
-                        break
-                if not target_url:
-                    target_url = data["audio_formats"][0].get("stream_url")
+                    with open(file_path, "wb") as f:
+                        async for chunk in dl_resp.content.iter_chunked(262144): # 256KB chunks for smooth downloading
+                            f.write(chunk)
 
-            # 4. Return the stream URL directly to PyTgCalls
-            if target_url:
-                logger.info(f"Stream ready! Passing {target_url} directly to PyTgCalls.")
-                return target_url
+            # 4. Return the valid LOCAL FILE PATH so AloneX doesn't crash
+            if os.path.exists(file_path) and os.path.getsize(file_path) > 10240:
+                logger.info(f"Successfully downloaded {video_id}! Ready to play.")
+                return file_path
             else:
-                logger.error(f"Could not find a valid stream URL in the API response for {video_id}")
+                logger.error(f"Downloaded file for {video_id} is empty.")
+                if os.path.exists(file_path):
+                    os.remove(file_path)
                 return None
 
         except asyncio.TimeoutError:
-            logger.error(f"API request timed out for {video_id}. The server is busy.")
+            logger.error(f"Download timed out for {video_id}. The proxy took too long.")
+            if os.path.exists(file_path):
+                try: os.remove(file_path)
+                except: pass
             return None
         except Exception as e:
-            logger.error(f"Failed to fetch stream link for {video_id}: {e}")
+            logger.error(f"Download error for {video_id}: {e}")
+            if os.path.exists(file_path):
+                try: os.remove(file_path)
+                except: pass
             return None
+
