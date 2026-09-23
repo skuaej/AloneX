@@ -5,7 +5,7 @@ from py_yt import VideosSearch, Playlist
 from AloneX import logger, config
 from AloneX.helpers import Track, utils
 
-# Eldian Music API
+# Eldian API Setup (No Key Required)
 API_URL = os.environ.get("ELDIAN_API_URL", "https://eldian-music-api-production.up.railway.app")
 DOWNLOAD_DIR = "downloads"
 
@@ -20,15 +20,6 @@ class YouTube:
 
     def valid(self, url: str) -> bool:
         return bool(re.match(self.regex, url))
-
-    def _extract_id(self, video_id: str) -> str | None:
-        """Extract clean 11-char video ID from URL or raw ID"""
-        if not video_id:
-            return None
-        if len(video_id) == 11 and re.match(r"^[A-Za-z0-9_-]{11}$", video_id):
-            return video_id
-        match = re.search(r"(?:v=|youtu\.be/|shorts/)([A-Za-z0-9_-]{11})", video_id)
-        return match.group(1) if match else None
 
     async def search(self, query: str, m_id: int, video: bool = False) -> Track | None:
         try:
@@ -74,56 +65,60 @@ class YouTube:
             logger.error(f"Playlist error: {e}")
         return tracks
 
+    # Eldian API Integrated Download Function (Keyless)
     async def download(self, video_id: str, video: bool = False) -> str | None:
-        video_id = self._extract_id(video_id)
-        if not video_id:
+        if not video_id or len(video_id) < 3:
             return None
 
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-        ext = "mp4" if video else "m4a"
+        ext = "mp4" if video else "mp3" 
         file_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.{ext}")
 
-        # Return cached file if exists
+        # Ensure file isn't empty/corrupted before returning
         if os.path.exists(file_path) and os.path.getsize(file_path) > 1024:
             return file_path
 
         try:
             async with aiohttp.ClientSession() as session:
                 if video:
-                    url = f"{API_URL}/mp4"
+                    endpoint = f"{API_URL}/mp4"
                     params = {"video_id": video_id, "resolution": "720"}
-                    timeout_sec = 600
                 else:
-                    url = f"{API_URL}/audio"
-                    params = {"video_id": video_id, "quality": "192"}
-                    timeout_sec = 300
-
-                timeout = aiohttp.ClientTimeout(total=timeout_sec)
-
+                    endpoint = f"{API_URL}/audio"
+                    params = {"video_id": video_id, "quality": "320"}
+                
+                timeout_limit = 600 if video else 300
+                logger.info(f"Downloading {video_id} via Eldian API... (Video: {video})")
+                
                 async with session.get(
-                    url,
+                    endpoint,
                     params=params,
-                    timeout=timeout,
-                    allow_redirects=True
+                    timeout=aiohttp.ClientTimeout(total=timeout_limit)
                 ) as resp:
-
                     if resp.status != 200:
-                        logger.error(f"[Eldian] Download failed: {resp.status} for {video_id}")
+                        error_text = await resp.text()
+                        logger.error(f"API Download failed (Status: {resp.status}). Response: {error_text}")
                         return None
-
+                    
                     with open(file_path, "wb") as f:
                         async for chunk in resp.content.iter_chunked(131072):
                             f.write(chunk)
 
             if os.path.exists(file_path) and os.path.getsize(file_path) > 1024:
                 return file_path
-
-        except Exception as e:
-            logger.error(f"Eldian download exception ({video_id}): {e}")
-            if os.path.exists(file_path):
-                try:
+            else:
+                logger.error(f"Downloaded file is empty or corrupted: {file_path}")
+                if os.path.exists(file_path):
                     os.remove(file_path)
-                except:
+                return None
+                
+        except Exception as e:
+            logger.error(f"Download exception for ID {video_id}: {e}")
+            if os.path.exists(file_path):
+                try: 
+                    os.remove(file_path)
+                except: 
                     pass
-
+                    
         return None
+
