@@ -1,3 +1,4 @@
+
 import os
 import re
 import asyncio
@@ -66,7 +67,7 @@ class YouTube:
             logger.error(f"Playlist error: {e}")
         return tracks
 
-    # ELDIAN API: DOWNLOADING VIA STANDARD ROUTING LINKS
+    # ELDIAN API: FREEZE-PROOF DOWNLOADER
     async def download(self, video_id: str, video: bool = False) -> str | None:
         if not video_id or len(video_id) < 3:
             return None
@@ -80,6 +81,11 @@ class YouTube:
             logger.info(f"Using locally cached file for {video_id}")
             return file_path
 
+        # Delete any broken 0-byte file from previous hangs
+        if os.path.exists(file_path):
+            try: os.remove(file_path)
+            except: pass
+
         try:
             logger.info(f"Downloading {video_id} using Eldian API Standard Links...")
             
@@ -90,17 +96,21 @@ class YouTube:
                 target_url = f"{API_URL}/audio?video_id={video_id}&quality=192"
 
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+            
+            # CRITICAL FIX: sock_read=10 prevents the bot from hanging if Google CDN IP-blocks the connection!
+            client_timeout = aiohttp.ClientTimeout(total=180, connect=15, sock_read=10)
 
-            async with aiohttp.ClientSession(headers=headers) as session:
+            async with aiohttp.ClientSession(headers=headers, timeout=client_timeout) as session:
                 
-                # 3. Download the file fast in large chunks, following redirects automatically
-                async with session.get(target_url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=120)) as dl_resp:
+                # 3. Download the file safely, following redirects
+                async with session.get(target_url, allow_redirects=True) as dl_resp:
                     if dl_resp.status not in (200, 206):
                         logger.error(f"API returned status {dl_resp.status} for URL {target_url}")
                         return None
                         
                     with open(file_path, "wb") as f:
-                        async for chunk in dl_resp.content.iter_chunked(1048576): # 1 MB chunks for maximum speed
+                        # CRITICAL FIX: 64KB chunks. 1MB was too large and caused freezing on throttled CDN links.
+                        async for chunk in dl_resp.content.iter_chunked(65536): 
                             f.write(chunk)
 
             # 4. Verify successful download
@@ -114,7 +124,8 @@ class YouTube:
                 return None
 
         except asyncio.TimeoutError:
-            logger.error(f"Download timed out for {video_id}. API is overloaded.")
+            # If Google blocks the CDN redirect, it throws this error instead of hanging your whole bot!
+            logger.error(f"Download timed out for {video_id}! Google CDN likely blocked the API redirect.")
             if os.path.exists(file_path):
                 try: os.remove(file_path)
                 except: pass
@@ -125,4 +136,3 @@ class YouTube:
                 try: os.remove(file_path)
                 except: pass
             return None
-
