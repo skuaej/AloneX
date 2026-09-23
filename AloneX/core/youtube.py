@@ -6,7 +6,7 @@ from py_yt import VideosSearch, Playlist
 from AloneX import logger, config
 from AloneX.helpers import Track, utils
 
-# Eldian API Setup (No Key Required)
+# Eldian API Setup
 API_URL = os.environ.get("ELDIAN_API_URL", "https://eldian-music-api-production.up.railway.app")
 DOWNLOAD_DIR = "downloads"
 
@@ -66,70 +66,98 @@ class YouTube:
             logger.error(f"Playlist error: {e}")
         return tracks
 
-    # Eldian API Integrated Download Function (Anti-Hang & Redirects Enabled)
+    # Direct info extraction + reliable streaming
     async def download(self, video_id: str, video: bool = False) -> str | None:
         if not video_id or len(video_id) < 3:
             return None
 
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-        ext = "mp4" if video else "mp3" 
+        ext = "mp4" if video else "mp3"
         file_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.{ext}")
 
-        # Ensure file isn't empty/corrupted before returning
-        if os.path.exists(file_path) and os.path.getsize(file_path) > 1024:
-            logger.info(f"File already exists in cache: {file_path}")
+        if os.path.exists(file_path) and os.path.getsize(file_path) > 10240:
+            logger.info(f"File already cached: {file_path}")
             return file_path
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                if video:
-                    endpoint = f"{API_URL}/mp4"
-                    params = {"video_id": video_id, "resolution": "720"}
-                else:
-                    endpoint = f"{API_URL}/audio"
-                    params = {"video_id": video_id, "quality": "320"}
-                
-                # Fake User-Agent so the server/cloudflare doesn't block the bot
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
-                }
+        # Clear out any broken/partial file from before
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except:
+                pass
 
-                timeout_limit = 600 if video else 300
-                logger.info(f"Downloading {video_id} via Eldian API... (Following redirects)")
-                
-                async with session.get(
-                    endpoint,
-                    params=params,
-                    headers=headers,
-                    allow_redirects=True, # THIS IS THE CRITICAL FIX for Google CDN
-                    timeout=aiohttp.ClientTimeout(total=timeout_limit)
-                ) as resp:
-                    
-                    if resp.status not in (200, 206): # CDN might return 206 Partial Content
-                        error_text = await resp.text()
-                        logger.error(f"API Download failed (Status: {resp.status}). Response: {error_text}")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+
+        # 30-second connection timeout, 5-minute total download timeout
+        client_timeout = aiohttp.ClientTimeout(total=300, connect=30, sock_read=30)
+
+        try:
+            async with aiohttp.ClientSession(timeout=client_timeout, headers=headers) as session:
+                target_url = None
+
+                # STEP 1: Query the API info endpoint (exactly what succeeded in your terminal)
+                logger.info(f"Fetching download stream for {video_id}...")
+                async with session.post(
+                    f"{API_URL}/api/info",
+                    json={"input": f"https://youtu.be/{video_id}"}
+                ) as info_resp:
+                    if info_resp.status == 200:
+                        data = await info_resp.json()
+                        if video and data.get("mp4_formats"):
+                            # Select highest or 720p resolution
+                            for fmt in data["mp4_formats"]:
+                                if fmt.get("resolution") in ("720p", "480p", "360p"):
+                                    target_url = fmt.get("download_url")
+                                    break
+                            if not target_url:
+                                target_url = data["mp4_formats"][-1].get("download_url")
+                        elif not video and data.get("audio_formats"):
+                            # Pick 320 or first available audio
+                            for fmt in data["audio_formats"]:
+                                if fmt.get("quality") == "320kbps":
+                                    target_url = fmt.get("download_url")
+                                    break
+                            if not target_url:
+                                target_url = data["audio_formats"][0].get("download_url")
+
+                # Fallback to direct route if /api/info didn't give a URL
+                if not target_url:
+                    if video:
+                        target_url = f"{API_URL}/mp4?video_id={video_id}&resolution=720"
+                    else:
+                        target_url = f"{API_URL}/audio?video_id={video_id}&quality=192"
+
+                logger.info(f"Downloading stream from {target_url} ...")
+
+                # STEP 2: Download stream with active read timeout
+                async with session.get(target_url, allow_redirects=True) as dl_resp:
+                    if dl_resp.status not in (200, 206):
+                        logger.error(f"Download stream returned status {dl_resp.status}")
                         return None
-                    
+
                     with open(file_path, "wb") as f:
-                        # Writing in slightly smaller chunks for better stability
-                        async for chunk in resp.content.iter_chunked(65536): 
+                        while True:
+                            chunk = await dl_resp.content.read(65536)
+                            if not chunk:
+                                break
                             f.write(chunk)
 
-            # Final check to confirm it actually finished successfully
-            if os.path.exists(file_path):
-                file_size = os.path.getsize(file_path)
-                if file_size > 1024:
-                    logger.info(f"Successfully downloaded {video_id}! Size: {file_size // 1024} KB")
-                    return file_path
-                else:
-                    logger.error(f"Downloaded file is empty or corrupted (Size: {file_size} bytes)")
-                    os.remove(file_path)
-                    return None
+            if os.path.exists(file_path) and os.path.getsize(file_path) > 10240:
+                logger.info(f"Successfully downloaded {video_id} ({os.path.getsize(file_path) // 1024} KB)")
+                return file_path
             else:
+                logger.error(f"Download produced an incomplete or empty file for {video_id}")
+                if os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                    except:
+                        pass
                 return None
-                
+
         except asyncio.TimeoutError:
-            logger.error(f"Download timed out for {video_id}! The API took too long to respond.")
+            logger.error(f"Stream timeout reached while downloading {video_id}")
             if os.path.exists(file_path):
                 try:
                     os.remove(file_path)
@@ -137,12 +165,10 @@ class YouTube:
                     pass
             return None
         except Exception as e:
-            logger.error(f"Download exception for ID {video_id}: {e}")
+            logger.error(f"Download exception for {video_id}: {e}")
             if os.path.exists(file_path):
-                try: 
+                try:
                     os.remove(file_path)
-                except: 
+                except:
                     pass
-                    
-        return None
-
+            return None
