@@ -1,8 +1,6 @@
-#
 import os
 import re
 import asyncio
-import aiohttp
 from py_yt import VideosSearch, Playlist
 from AloneX import logger, config
 from AloneX.helpers import Track, utils
@@ -67,7 +65,7 @@ class YouTube:
             logger.error(f"Playlist error: {e}")
         return tracks
 
-    # STABLE & FAST: Direct info extraction + reliable chunked streaming
+    # ELDIAN API: INSTANT DIRECT STREAMING (NO DOWNLOADING)
     async def download(self, video_id: str, video: bool = False) -> str | None:
         if not video_id or len(video_id) < 3:
             return None
@@ -76,102 +74,25 @@ class YouTube:
         ext = "mp4" if video else "mp3"
         file_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.{ext}")
 
+        # Check if we accidentally have an old downloaded file cached locally
         if os.path.exists(file_path) and os.path.getsize(file_path) > 10240:
-            logger.info(f"File already cached: {file_path}")
+            logger.info(f"Using locally cached file for {video_id}")
             return file_path
 
-        # Clear out any broken/partial file from before
-        if os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-            except:
-                pass
-
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
-
-        # 30-second connection timeout, 5-minute total download timeout
-        client_timeout = aiohttp.ClientTimeout(total=300, connect=30, sock_read=30)
-
+        # INSTEAD OF DOWNLOADING, WE JUST GIVE THE BOT THE DIRECT STREAM LINK!
         try:
-            async with aiohttp.ClientSession(timeout=client_timeout, headers=headers) as session:
-                target_url = None
-
-                # STEP 1: Fetch stable direct link via JSON body
-                logger.info(f"Fetching stable download stream for {video_id}...")
-                async with session.post(
-                    f"{API_URL}/api/info",
-                    json={"input": f"https://youtu.be/{video_id}"}
-                ) as info_resp:
-                    if info_resp.status == 200:
-                        data = await info_resp.json()
-                        if video and data.get("mp4_formats"):
-                            # Fast video setting: 480p or 360p
-                            for fmt in data["mp4_formats"]:
-                                if fmt.get("resolution") in ("480p", "360p"):
-                                    target_url = fmt.get("download_url")
-                                    break
-                            if not target_url:
-                                target_url = data["mp4_formats"][-1].get("download_url")
-                        elif not video and data.get("audio_formats"):
-                            # Fast audio setting: 192kbps or 128kbps
-                            for fmt in data["audio_formats"]:
-                                if fmt.get("quality") in ("192kbps", "128kbps"):
-                                    target_url = fmt.get("download_url")
-                                    break
-                            if not target_url:
-                                target_url = data["audio_formats"][0].get("download_url")
-
-                # Fallback just in case JSON parsing failed
-                if not target_url:
-                    if video:
-                        target_url = f"{API_URL}/mp4?video_id={video_id}&resolution=480"
-                    else:
-                        target_url = f"{API_URL}/audio?video_id={video_id}&quality=192"
-
-                logger.info(f"Downloading stable stream... ({video_id})")
-
-                # STEP 2: Download stream with active read timeout and 1MB chunks
-                async with session.get(target_url, allow_redirects=True) as dl_resp:
-                    if dl_resp.status not in (200, 206):
-                        logger.error(f"Download stream returned status {dl_resp.status}")
-                        return None
-
-                    with open(file_path, "wb") as f:
-                        while True:
-                            # Massive chunk size for speed
-                            chunk = await dl_resp.content.read(1048576)
-                            if not chunk:
-                                break
-                            f.write(chunk)
-
-            if os.path.exists(file_path) and os.path.getsize(file_path) > 10240:
-                logger.info(f"Successfully downloaded {video_id} ({os.path.getsize(file_path) // 1024} KB)")
-                return file_path
+            # We use 128kbps for audio and 360p for video for maximum instant loading speed
+            if video:
+                stream_url = f"{API_URL}/mp4?video_id={video_id}&resolution=360"
             else:
-                logger.error(f"Download produced an incomplete or empty file for {video_id}")
-                if os.path.exists(file_path):
-                    try:
-                        os.remove(file_path)
-                    except:
-                        pass
-                return None
+                stream_url = f"{API_URL}/audio?video_id={video_id}&quality=128"
 
-        except asyncio.TimeoutError:
-            logger.error(f"Stream timeout reached while downloading {video_id}")
-            if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                except:
-                    pass
-            return None
+            logger.info(f"Instant streaming {video_id} directly from API...")
+            
+            # Returning the URL directly to PyTgCalls! No downloading to server!
+            return stream_url
+
         except Exception as e:
-            logger.error(f"Download exception for {video_id}: {e}")
-            if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                except:
-                    pass
+            logger.error(f"Failed to generate stream link for {video_id}: {e}")
             return None
 
