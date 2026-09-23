@@ -1,5 +1,6 @@
 import os
 import re
+import asyncio
 import aiohttp
 from py_yt import VideosSearch, Playlist
 from AloneX import logger, config
@@ -65,7 +66,7 @@ class YouTube:
             logger.error(f"Playlist error: {e}")
         return tracks
 
-    # Eldian API Integrated Download Function (Keyless)
+    # Eldian API Integrated Download Function (Keyless & Anti-Hang)
     async def download(self, video_id: str, video: bool = False) -> str | None:
         if not video_id or len(video_id) < 3:
             return None
@@ -76,6 +77,7 @@ class YouTube:
 
         # Ensure file isn't empty/corrupted before returning
         if os.path.exists(file_path) and os.path.getsize(file_path) > 1024:
+            logger.info(f"File already exists in cache: {file_path}")
             return file_path
 
         try:
@@ -87,12 +89,18 @@ class YouTube:
                     endpoint = f"{API_URL}/audio"
                     params = {"video_id": video_id, "quality": "320"}
                 
+                # Fake User-Agent so the server/cloudflare doesn't block the bot
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+                }
+
                 timeout_limit = 600 if video else 300
-                logger.info(f"Downloading {video_id} via Eldian API... (Video: {video})")
+                logger.info(f"Downloading {video_id} via Eldian API... (Please wait)")
                 
                 async with session.get(
                     endpoint,
                     params=params,
+                    headers=headers,
                     timeout=aiohttp.ClientTimeout(total=timeout_limit)
                 ) as resp:
                     if resp.status != 200:
@@ -101,17 +109,31 @@ class YouTube:
                         return None
                     
                     with open(file_path, "wb") as f:
-                        async for chunk in resp.content.iter_chunked(131072):
+                        # Writing in slightly smaller chunks for better stability
+                        async for chunk in resp.content.iter_chunked(65536): 
                             f.write(chunk)
 
-            if os.path.exists(file_path) and os.path.getsize(file_path) > 1024:
-                return file_path
-            else:
-                logger.error(f"Downloaded file is empty or corrupted: {file_path}")
-                if os.path.exists(file_path):
+            # Final check to confirm it actually finished successfully
+            if os.path.exists(file_path):
+                file_size = os.path.getsize(file_path)
+                if file_size > 1024:
+                    logger.info(f"Successfully downloaded {video_id}! Size: {file_size // 1024} KB")
+                    return file_path
+                else:
+                    logger.error(f"Downloaded file is empty or corrupted (Size: {file_size} bytes)")
                     os.remove(file_path)
+                    return None
+            else:
                 return None
                 
+        except asyncio.TimeoutError:
+            logger.error(f"Download timed out for {video_id}! The API took too long to respond.")
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except:
+                    pass
+            return None
         except Exception as e:
             logger.error(f"Download exception for ID {video_id}: {e}")
             if os.path.exists(file_path):
