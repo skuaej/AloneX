@@ -6,7 +6,7 @@ from py_yt import VideosSearch, Playlist
 from AloneX import logger, config
 from AloneX.helpers import Track, utils
 
-# Eldian API Setup
+# Updated Eldian API Setup
 API_URL = os.environ.get("ELDIAN_API_URL", "https://eldian-music-api-production.up.railway.app")
 DOWNLOAD_DIR = "downloads"
 
@@ -66,13 +66,14 @@ class YouTube:
             logger.error(f"Playlist error: {e}")
         return tracks
 
-    # ELDIAN API: FAST PROXY DOWNLOADER (Satisfies AloneX File Check)
+    # UPDATED API ROUTING: LOCAL DOWNLOADER
     async def download(self, video_id: str, video: bool = False) -> str | None:
         if not video_id or len(video_id) < 3:
             return None
 
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-        ext = "mp4" if video else "mp3"
+        # We use m4a for audio to match the new API format 140
+        ext = "mp4" if video else "m4a"
         file_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.{ext}")
 
         # 1. Use cached file to skip downloading if already played
@@ -86,29 +87,61 @@ class YouTube:
             except: pass
 
         try:
-            logger.info(f"Downloading {video_id} locally to satisfy bot requirements...")
-            
-            # 2. Use the Proxy Stream endpoint to bypass Google CDN IP blocks
-            if video:
-                target_url = f"{API_URL}/stream?video_id={video_id}&type=mp4&resolution=360"
-            else:
-                target_url = f"{API_URL}/stream?video_id={video_id}&type=audio&quality=128"
-
+            logger.info(f"Fetching new API routes for {video_id}...")
+            target_url = None
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"}
             
-            # 3. Download the file safely using chunks
-            client_timeout = aiohttp.ClientTimeout(total=300, connect=15, sock_read=30)
-            async with aiohttp.ClientSession(headers=headers, timeout=client_timeout) as session:
-                async with session.get(target_url, allow_redirects=True) as dl_resp:
+            async with aiohttp.ClientSession(headers=headers) as session:
+                
+                # 2. Ping the base route to get the JSON output
+                # Adjust this if your JSON route is different (e.g. /api/info)
+                async with session.get(
+                    f"{API_URL}/api/info?url=https://www.youtube.com/watch?v={video_id}",
+                    timeout=aiohttp.ClientTimeout(total=20)
+                ) as info_resp:
+                    
+                    if info_resp.status == 200:
+                        data = await info_resp.json()
+                        
+                        if video and data.get("video_streams_with_sound"):
+                            # Find a ~360p or 338p stream for fast video playback
+                            for stream in data["video_streams_with_sound"]:
+                                if stream.get("quality") == "338p":
+                                    target_url = stream.get("download_url")
+                                    break
+                            if not target_url:
+                                target_url = data["video_streams_with_sound"][-1].get("download_url")
+                                
+                        elif not video and data.get("audio_streams"):
+                            # Look for format_id 140 (m4a) which PyTgCalls loves
+                            for stream in data["audio_streams"]:
+                                if stream.get("format_id") == "140":
+                                    target_url = stream.get("stream_url")
+                                    break
+                            if not target_url:
+                                target_url = data["audio_streams"][0].get("stream_url")
+
+                # Fallback URL if JSON extraction failed
+                if not target_url:
+                    if video:
+                        target_url = f"{API_URL}/api/stream_video?url=https://www.youtube.com/watch?v={video_id}&quality=338p"
+                    else:
+                        target_url = f"{API_URL}/api/stream_audio?url=https://www.youtube.com/watch?v={video_id}&format_id=140"
+
+                logger.info(f"Downloading stream locally...")
+                
+                # 3. Download the file safely using chunks
+                client_timeout = aiohttp.ClientTimeout(total=300, connect=15, sock_read=30)
+                async with session.get(target_url, allow_redirects=True, timeout=client_timeout) as dl_resp:
                     if dl_resp.status not in (200, 206):
                         logger.error(f"API returned status {dl_resp.status} for URL {target_url}")
                         return None
                         
                     with open(file_path, "wb") as f:
-                        async for chunk in dl_resp.content.iter_chunked(262144): # 256KB chunks for smooth downloading
+                        async for chunk in dl_resp.content.iter_chunked(262144): # 256KB chunks
                             f.write(chunk)
 
-            # 4. Return the valid LOCAL FILE PATH so AloneX doesn't crash
+            # 4. Return the valid LOCAL FILE PATH
             if os.path.exists(file_path) and os.path.getsize(file_path) > 10240:
                 logger.info(f"Successfully downloaded {video_id}! Ready to play.")
                 return file_path
@@ -119,7 +152,7 @@ class YouTube:
                 return None
 
         except asyncio.TimeoutError:
-            logger.error(f"Download timed out for {video_id}. The proxy took too long.")
+            logger.error(f"Download timed out for {video_id}.")
             if os.path.exists(file_path):
                 try: os.remove(file_path)
                 except: pass
@@ -130,4 +163,3 @@ class YouTube:
                 try: os.remove(file_path)
                 except: pass
             return None
-
