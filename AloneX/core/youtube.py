@@ -1,8 +1,8 @@
-
 import os
 import re
 import asyncio
 import aiohttp
+import urllib.parse
 from py_yt import VideosSearch, Playlist
 from AloneX import logger, config
 from AloneX.helpers import Track, utils
@@ -67,7 +67,7 @@ class YouTube:
             logger.error(f"Playlist error: {e}")
         return tracks
 
-    # ELDIAN API: ULTRA-FAST DIRECT DOWNLOAD (1-2 SECONDS)
+    # ELDIAN API: 1-SECOND INSTANT DOWNLOADER
     async def download(self, video_id: str, video: bool = False) -> str | None:
         if not video_id or len(video_id) < 3:
             return None
@@ -76,36 +76,37 @@ class YouTube:
         ext = "mp4" if video else "m4a"
         file_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.{ext}")
 
-        # Instant return if file already exists
+        # Instant skip if we already downloaded it before
         if os.path.exists(file_path) and os.path.getsize(file_path) > 10240:
             return file_path
 
-        # Clear out broken empty files
-        if os.path.exists(file_path):
-            try: os.remove(file_path)
-            except: pass
-
         try:
-            # DIRECT ROUTING: Skip JSON fetch entirely and use the exact proxy routes
+            # 1. URL ENCODE to match your API JSON exactly (https%3A%2F%2F...)
+            # This stops the API from spending time redirecting or parsing raw symbols
+            yt_url = urllib.parse.quote(f"https://www.youtube.com/watch?v={video_id}")
+            
+            # 2. Use the exact stream route (140 kbps audio = fast ~4MB file)
             if video:
-                target_url = f"{API_URL}/api/stream_video?url=https://www.youtube.com/watch?v={video_id}&quality=338p"
+                target_url = f"{API_URL}/api/stream_video?url={yt_url}&quality=338p"
             else:
-                # format_id=140 is the lightweight m4a audio stream
-                target_url = f"{API_URL}/api/stream_audio?url=https://www.youtube.com/watch?v={video_id}&format_id=140"
+                target_url = f"{API_URL}/api/stream_audio?url={yt_url}&format_id=140"
 
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"}
             
-            # Use 1MB chunks to blast the data to the hard drive instantly
+            # 3. INSTANT DOWNLOAD: Grab the whole file at once instead of looping chunks
             async with aiohttp.ClientSession(headers=headers) as session:
                 async with session.get(target_url, allow_redirects=True) as dl_resp:
-                    if dl_resp.status not in (200, 206):
+                    if dl_resp.status == 200:
+                        # `.read()` pulls the entire audio into memory instantly. 
+                        # This avoids the slow I/O overhead of writing small chunks.
+                        file_data = await dl_resp.read()
+                        with open(file_path, "wb") as f:
+                            f.write(file_data)
+                    else:
+                        logger.error(f"API Error {dl_resp.status} for {video_id}")
                         return None
-                        
-                    with open(file_path, "wb") as f:
-                        async for chunk in dl_resp.content.iter_chunked(1048576): 
-                            f.write(chunk)
 
-            # Verification
+            # Verify and return
             if os.path.exists(file_path) and os.path.getsize(file_path) > 10240:
                 return file_path
             else:
@@ -114,7 +115,7 @@ class YouTube:
                 return None
 
         except Exception as e:
-            logger.error(f"Fast Download error for {video_id}: {e}")
+            logger.error(f"1-Second Download error for {video_id}: {e}")
             if os.path.exists(file_path):
                 try: os.remove(file_path)
                 except: pass
